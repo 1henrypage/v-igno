@@ -1,0 +1,14 @@
+[project]
+name = "VI-IGNO"
+version = "0.1.0"
+description = "Master thesis code"
+readme = "README.md"
+requires-python = ">=3.12.0"
+dependencies = [
+    "ipykernel>=7.1.0",
+    "jupyter>=1.1.1",
+    "notebook>=7.5.0",
+    "numpy>=2.3.5",
+    "pandas>=2.3.3",
+    "torch>=2.9.1",
+]
