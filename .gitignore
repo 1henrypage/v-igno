@@ -9,6 +9,9 @@
 *.fls
 *.DS_Store
 
+# DATA
+data/
+
 # STANDARD PYTHON GITIGNORE
 
 # Byte-compiled / optimized / DLL files

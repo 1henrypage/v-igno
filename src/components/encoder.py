@@ -126,6 +126,7 @@ class EncoderCNNet2d(nn.Module):
             stride=3,
             dtype=None
     ):
+        super(EncoderCNNet2d, self).__init__()
         self.in_channel = conv_arch[0]
         self.nx_size = nx_size
         self.ny_size = ny_size
@@ -153,15 +154,32 @@ class EncoderCNNet2d(nn.Module):
 
         return x
 
+class EncoderCNNet2dTanh(EncoderCNNet2d):
 
+    def __init__(
+            self,
+            conv_arch: list[int],
+            fc_arch: list[int],
+            activation_conv: str | nn.Module,
+            activation_fc: str | nn.Module,
+            nx_size: int,
+            ny_size: int,
+            kernel_size=(5,5),
+            stride=3,
+            dtype=None
+    ):
+        super(EncoderCNNet2dTanh, self).__init__(
+            conv_arch=conv_arch,
+            fc_arch=fc_arch,
+            activation_conv=activation_conv,
+            activation_fc=activation_fc,
+            nx_size=nx_size,
+            ny_size=ny_size,
+            kernel_size=kernel_size,
+            stride=stride,
+            dtype=dtype
+        )
 
-
-
-
-
-
-
-
-
-
-
+    def forward(self, x):
+        beta = super().forward(x)
+        return torch.tanh(beta)

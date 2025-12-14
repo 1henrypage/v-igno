@@ -33,7 +33,7 @@ def get_model(x_in_size: int, beta_in_size: int,
               latent_size: int = None, out_size: int = 1,
               activation_trunk='SiLU_Sin', activation_branch='SiLU',
               net_type: str = 'MultiONetBatch',
-              device: torch.device = get_default_device(),
+              device: torch.device | str = get_default_device(),
               dtype: Optional[torch.dtype] = None,
               **kwrds):
     '''Get the neural network model

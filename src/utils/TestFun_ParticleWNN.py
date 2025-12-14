@@ -4,7 +4,7 @@ import torch
 import math
 import sys
 
-from PlotFigure import Plot
+from .PlotFigure import Plot
 
 class TestFun_ParticleWNN():
     '''

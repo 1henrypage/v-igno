@@ -2,9 +2,33 @@
 import torch
 import numpy as np
 
+from pathlib import Path
+import subprocess
+
+
 def get_default_device() -> torch.device:
     """ Returns GPU if available, else CPU. """
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def setup_seed(seed):
+    """
+    Sets seed for torch
+
+    """
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+
+def get_project_root() -> Path:
+    return Path(
+        subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            stderr=subprocess.DEVNULL,
+        )
+        .decode()
+        .strip()
+    )
 
 def np2tensor(x:np.array, dtype=torch.float32, device: str | torch.device = torch.device("cuda")):
     '''From numpy.array to torch.tensor

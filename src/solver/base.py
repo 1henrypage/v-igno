@@ -7,11 +7,15 @@ from typing import Optional, Dict, Literal
 from tqdm import trange
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
+from pathlib import Path
+
 
 from src.solver.config import SchedulerConfig, OptimizerConfig, LossWeights
 from src.utils.Losses import MyError, MyLoss
-from src.utils.misc_utils import get_default_device
+from src.utils.misc_utils import get_default_device, get_project_root
 from src.utils.solver_utils import get_optimizer, get_scheduler, data_loader
+
+ARTIFACT_DIR: Path = get_project_root() / "runs"
 
 
 # Loss classes
@@ -21,9 +25,11 @@ class ProblemInstance(ABC):
 
     def __init__(
             self,
-            device: torch.device = get_default_device(),
+            device: torch.device | str = get_default_device(),
             dtype: Optional[torch.dtype] = torch.float32,
-    ):
+    ) -> None:
+        self.device = device
+        self.dtype = dtype
 
         # INIT
         self.init_error()
@@ -34,15 +40,26 @@ class ProblemInstance(ABC):
         self.get_error = None
 
     @abstractmethod
-    def loss_beta(self) -> Optional[torch.Tensor]:
+    def loss_beta(
+            self,
+            a: torch.Tensor
+    ) -> Optional[torch.Tensor]:
         return 0
 
     @abstractmethod
-    def loss_pde(self) -> torch.Tensor:
+    def loss_pde(
+            self,
+            a: torch.Tensor
+    ) -> torch.Tensor:
         return 0
 
     @abstractmethod
-    def loss_data(self) -> torch.Tensor:
+    def loss_data(
+            self,
+            x: torch.Tensor,
+            a: torch.Tensor,
+            u: torch.Tensor
+    ) -> torch.Tensor:
         return 0
 
     @abstractmethod
@@ -50,7 +67,12 @@ class ProblemInstance(ABC):
         pass
 
     @abstractmethod
-    def error(self) -> torch.Tensor:
+    def error(
+            self,
+            x: torch.Tensor,
+            a: torch.Tensor,
+            u: torch.Tensor
+    ) -> torch.Tensor:
         return 0
 
     def init_error(
@@ -88,7 +110,7 @@ class Solver:
     def __init__(
             self,
             problem_instance: ProblemInstance,
-            device: torch.Device = get_default_device(),
+            device: torch.device | str = get_default_device(),
             dtype: torch.dtype = torch.float32
     ):
         self.problem_instance = problem_instance
@@ -111,25 +133,21 @@ class Solver:
             custom_run_tag: str = None
     ) -> None:
 
-        ARTIFACT_DIR = './runs'
         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         run_name = f"{timestamp}_{custom_run_tag}" if custom_run_tag else timestamp
         run_dir = ARTIFACT_DIR / run_name
-        weights_dir = run_dir / "weights"
-        tb_dir = run_dir / "tb"
-        weights_dir.mkdir(parents=True)
-        tb_dir.mkdir(parents=True)
+        self.weights_dir = run_dir / "weights"
+        self.tb_dir = run_dir / "tb"
+        self.weights_dir.mkdir(parents=True)
+        self.tb_dir.mkdir(parents=True)
 
         # Save config
         (loss_weights.save(run_dir / "loss_weights.yaml"))
         (optimizer_config.save(run_dir / "optimizer_config.yaml"))
         (scheduler_config.save(run_dir / "scheduler_config.yaml"))
 
-        self.weights_dir = weights_dir
-        self.tb_dir = tb_dir
-
         self.writer = SummaryWriter(
-            log_dir=tb_dir
+            log_dir=str(self.tb_dir)
         )
 
     def log_epoch(
