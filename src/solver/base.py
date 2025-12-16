@@ -202,8 +202,22 @@ class Solver:
         """
         self.weights_dir.mkdir(parents=True, exist_ok=True)
         save_path = self.weights_dir / filename
-        torch.save(self.model_dict, save_path)
 
+        # Extract state_dicts
+        state_dicts = {name: model.state_dict() for name, model in self.model_dict.items()}
+        torch.save(state_dicts, save_path)
+
+    def load_models(self, filename: str):
+        load_path = self.weights_dir / filename
+        if not load_path.exists():
+            raise FileNotFoundError(f"No model file found at {load_path}")
+
+        state_dicts = torch.load(load_path, map_location=self.device)
+        for name, model in self.model_dict.items():
+            if name in state_dicts:
+                model.load_state_dict(state_dicts[name])
+            else:
+                raise RuntimeError(f"No model state dict found for {name}")
 
     def pre_train_init(
             self,
@@ -367,3 +381,4 @@ class Solver:
         self.save_models(filename='last.pt')
 
         print(f'The total training time is {time.time() - t_start:.4f}')
+
