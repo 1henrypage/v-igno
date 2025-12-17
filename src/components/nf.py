@@ -23,6 +23,15 @@ class ScaleTranslateNet(nn.Module):
             hidden_dim: int = 64,
             num_layers: int = 2
     ):
+        """
+        :param cond_dim: dimension of the latent (beta) variable.
+        :param out_dim: dimension of the prior (z) variable.
+        :param hidden_dim: dimension of the hidden layers in the networks.
+        :param num_layers: number of layers in the networks - 1
+        # TODO pay attention here as well1, we don't know if the paper references total layers or only hidden layers themselves. ^^^^^
+
+        """
+
         super().__init__()
 
         layers = [nn.Linear(cond_dim, hidden_dim), nn.SiLU()]
@@ -40,6 +49,7 @@ class ScaleTranslateNet(nn.Module):
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         h = self.net(x)
+        # TODO idk if this needs to align with their implementation.
         scale = torch.tanh(self.scale_layer(h)) * 2.0
         translation = self.translate_layer(h)
         return scale, translation
@@ -160,11 +170,19 @@ class RealNVP(nn.Module):
         return x, log_det_total
 
     def log_prob(self, x: torch.Tensor) -> torch.Tensor:
-        z, log_det = self.forward(x)
+        """
+        Calculates the log-likelihood for outputs: direction \beta -> z
+
+        """
+        z, log_det = self.forward(x) # output z candidate, logarithm of the determinant
         log_pz = -0.5 * (z ** 2 + self.log_2pi).sum(dim=1)
         return log_pz + log_det
 
     def loss(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Negative log-likelihood loss
+
+        """
         return -self.log_prob(x).mean()
 
     def sample(self, num_samples: int, device=None):
