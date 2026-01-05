@@ -7,8 +7,13 @@ import subprocess
 
 
 def get_default_device() -> torch.device:
-    """ Returns GPU if available, else CPU. """
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    """Return CUDA, MPS (Apple Silicon), or CPU in that order."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        return torch.device("mps")
+    else:
+        return torch.device("cpu")
 
 def setup_seed(seed):
     """
@@ -30,7 +35,7 @@ def get_project_root() -> Path:
         .strip()
     )
 
-def np2tensor(x:np.array, dtype=torch.float32, device: str | torch.device = torch.device("cuda")):
+def np2tensor(x:np.array, dtype=torch.float32, device: str | torch.device = get_default_device()):
     '''From numpy.array to torch.tensor
     '''
     return torch.tensor(x, dtype=dtype, device=device)
