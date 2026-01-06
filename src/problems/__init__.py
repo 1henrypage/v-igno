@@ -123,6 +123,5 @@ def create_problem(config) -> ProblemInstance:
         seed=config.seed,
     )
 
-
-# Auto-register problems
-# from src.problems.darcy import DarcyFlowContinuous
+# These imports are important here because otherwise the problems won't be registered
+from src.problems.darcy_continuous import DarcyFlowContinuous

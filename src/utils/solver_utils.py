@@ -92,7 +92,7 @@ def get_optimizer(
         'RMSprop': torch.optim.RMSprop,
     }
 
-    optimizer_type = optimizer_config.optimizer_type
+    optimizer_type = optimizer_config.type
 
     if optimizer_type not in OPTIMIZERS:
         raise NotImplementedError(f'Unknown optimizer: {optimizer_type}')

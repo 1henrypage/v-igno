@@ -14,13 +14,13 @@ from torch.autograd import grad, Variable
 from typing import Dict
 from pathlib import Path
 
-from components.encoder import EncoderCNNet2dTanh
+from src.components.encoder import EncoderCNNet2dTanh
 from src.problems import ProblemInstance, register_problem
 from src.utils.GenPoints import Point2D
 from src.utils.TestFun_ParticleWNN import TestFun_ParticleWNN
 from src.utils.misc_utils import np2tensor
-from utils.RBFInterpolatorMesh import RBFInterpolator
-from utils.solver_utils import get_model
+from src.utils.RBFInterpolatorMesh import RBFInterpolator
+from src.utils.solver_utils import get_model
 
 
 class TorchMollifier:
