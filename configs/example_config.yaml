@@ -16,9 +16,9 @@ stages:
 
 dgno:
   # 10,000
-  epochs: 1000
+  epochs: 10000
   batch_size: 50
-  epoch_show: 100
+  epoch_show: 1
   loss_weights:
     pde: 0.25
     data: 2.0
@@ -32,7 +32,7 @@ dgno:
 
 nf:
   # 10,000
-  epochs: 1000
+  epochs: 10000
   batch_size: 50
   epoch_show: 100
   nf:
