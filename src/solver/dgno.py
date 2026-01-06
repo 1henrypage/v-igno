@@ -200,6 +200,3 @@ class FoundationTrainer(BaseTrainer):
             for i in range(0, len(a), batch_size):
                 latents.append(enc(a[i:i+batch_size].to(self.device)).cpu())
         return torch.cat(latents, dim=0)
-
-
-Solver = FoundationTrainer
