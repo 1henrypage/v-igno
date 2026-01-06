@@ -42,8 +42,8 @@ class DarcyFlowContinuous(ProblemInstance):
     # =========================================================================
 
     # Data paths
-    TRAIN_DATA_PATH = "data/darcy_continuous/smh_train.mat"
-    TEST_DATA_PATH = "data/darcy_continuous/smh_test_in.mat"
+    TRAIN_DATA_PATH = "data/darcyflow_continuous/smh_train.mat"
+    TEST_DATA_PATH = "data/darcyflow_continuous/smh_test_in.mat"
 
     def __init__(self, device=None, dtype=torch.float32, seed: int = 10086):
         super().__init__(device=device, dtype=dtype, seed=seed)

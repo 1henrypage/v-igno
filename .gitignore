@@ -9,8 +9,7 @@
 *.fls
 *.DS_Store
 
-# DATA
-data/
+data/**/*.mat
 
 # STANDARD PYTHON GITIGNORE
 
