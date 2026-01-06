@@ -127,7 +127,8 @@ class RealNVP(nn.Module):
     def log_prob(self, x: torch.Tensor) -> torch.Tensor:
         """Log-likelihood: beta -> z direction."""
         z, log_det = self.forward(x)
-        log_pz = -0.5 * (z ** 2 + self.log_2pi).sum(dim=1)
+        log_pz = -0.5 * (self.dim * self.log_2pi + (z ** 2).sum(dim=1))
+        # log_pz = -0.5 * (z ** 2 + self.log_2pi).sum(dim=1)
         return log_pz + log_det
 
     def loss(self, x: torch.Tensor) -> torch.Tensor:
