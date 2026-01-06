@@ -86,6 +86,8 @@ class FoundationTrainer(BaseTrainer):
         best_error = float('inf')
         weights = cfg.loss_weights
 
+        print(f'DGNO Training using device: {self.device}')
+
         for epoch in trange(cfg.epochs, desc="DGNO"):
             self.train_mode()
             self.model_dict['nf'].eval()
@@ -199,4 +201,5 @@ class FoundationTrainer(BaseTrainer):
         with torch.no_grad():
             for i in range(0, len(a), batch_size):
                 latents.append(enc(a[i:i+batch_size].to(self.device)).cpu())
+
         return torch.cat(latents, dim=0)
