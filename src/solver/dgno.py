@@ -152,8 +152,8 @@ class FoundationTrainer(BaseTrainer):
         latents_train = self._extract_latents(train_data['a'], cfg.batch_size)
         latents_test = self._extract_latents(test_data['a'], cfg.batch_size)
 
-        train_loader = var_data_loader(latents_train, cfg.batch_size, shuffle=True)
-        test_loader = var_data_loader(latents_test, cfg.batch_size, shuffle=False)
+        train_loader = var_data_loader(latents_train, batch_size=cfg.batch_size, shuffle=True)
+        test_loader = var_data_loader(latents_test, batch_size=cfg.batch_size, shuffle=False)
 
         t_start = time.time()
         best_nll = float('inf')
