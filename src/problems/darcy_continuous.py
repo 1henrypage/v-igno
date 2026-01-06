@@ -14,10 +14,13 @@ from torch.autograd import grad, Variable
 from typing import Dict
 from pathlib import Path
 
+from components.encoder import EncoderCNNet2dTanh
 from src.problems import ProblemInstance, register_problem
 from src.utils.GenPoints import Point2D
 from src.utils.TestFun_ParticleWNN import TestFun_ParticleWNN
 from src.utils.misc_utils import np2tensor
+from utils.RBFInterpolatorMesh import RBFInterpolator
+from utils.solver_utils import get_model
 
 
 class TorchMollifier:
@@ -61,15 +64,15 @@ class DarcyFlowContinuous(ProblemInstance):
         print("Setting up grids and test functions...")
 
         self.genPoint = Point2D(
-            x_lb=self.X_LB,
-            x_ub=self.X_UB,
+            x_lb=[0.,0.],
+            x_ub=[1.,1.],
             dataType=self.dtype
         )
 
         int_grid, v, dv_dr = TestFun_ParticleWNN(
             fun_type='Wendland',
             dim=2,
-            n_mesh_or_grid=self.N_MESH,
+            n_mesh_or_grid=9,
             dataType=self.dtype
         ).get_testFun()
 
@@ -77,10 +80,18 @@ class DarcyFlowContinuous(ProblemInstance):
         self.v = v.to(self.device)
         self.dv_dr = dv_dr.to(self.device)
         self.n_grid = int_grid.shape[0]
+        self.fun_a = RBFInterpolator(
+            x_mesh=self.gridx_train,
+            kernel='gaussian',
+            eps=25.,
+            smoothing=0.,
+            degree=6,
+            dtype=self.dtype
+        )
 
         print(f"  int_grid: {self.int_grid.shape}, v: {self.v.shape}")
 
-        self.mollifier = Mollifier()
+        self.mollifier = TorchMollifier()
 
         # =====================================================================
         # 3. BUILD MODELS
@@ -118,31 +129,66 @@ class DarcyFlowContinuous(ProblemInstance):
         return {'a': a, 'u': u, 'x': x}, gridx
 
     def _build_models(self) -> Dict[str, nn.Module]:
-        """
-        Build encoder, u-model, and a-model.
+        net_type = 'MultiONetBatch'
+        beta_size = 128
+        hidden_size = 100
 
-        TODO: Implement with your model architectures.
-        """
-        # Example:
-        # model_enc = YourEncoder(...)
-        # model_u = YourUModel(...)
-        # model_a = YourAModel(...)
-        # return {'enc': model_enc, 'u': model_u, 'a': model_a}
+        ############ Encoder Architecture ########
+        conv_arch = [1, 64, 64, 64]
+        fc_arch = [64 * 2 * 2, 128, 128, beta_size]
+        model_enc = EncoderCNNet2dTanh(
+            conv_arch=conv_arch,
+            fc_arch=fc_arch,
+            activation_conv='SiLU',
+            activation_fc='SiLU',
+            nx_size=29,
+            ny_size=29,
+            kernel_size=(3, 3),
+            stride=2,
+            dtype=self.dtype
+        )
 
-        raise NotImplementedError("Implement _build_models() with your architectures")
+        ############ Decoder Architecture
+        trunk_layers, branch_layers = [hidden_size] * 6, [hidden_size] * 6
+        #
+        model_a = get_model(
+            x_in_size=2,
+            beta_in_size=beta_size,
+            trunk_layers=trunk_layers,
+            branch_layers=branch_layers,
+            activation_trunk='Tanh_Sin',
+            activation_branch='Tanh_Sin',
+            net_type=net_type,
+            sum_layers=5
+        )
 
-    def _fun_a(self, x: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        """Evaluate coefficient function a at points x."""
-        raise NotImplementedError("Implement _fun_a()")
+        model_u = get_model(
+            x_in_size=2,
+            beta_in_size=beta_size,
+            trunk_layers=trunk_layers,
+            branch_layers=branch_layers,
+            activation_trunk='Tanh_Sin',
+            activation_branch='Tanh_Sin',
+            net_type=net_type,
+            sum_layers=5
+        )
+
+        return {
+            'enc': model_enc,
+            'u': model_u,
+            'a': model_a
+        }
+
 
     def loss_pde(self, a: torch.Tensor) -> torch.Tensor:
         """Compute PDE residual loss."""
-        nc = self.NC
+        nc = 100
         n_batch = a.shape[0]
-
         beta = self.model_dict['enc'](a)
 
-        xc, R = self.genPoint.weight_centers(n_center=nc, R_max=self.R_MAX, R_min=self.R_MIN)
+        ##### Data points
+        # xc:size(nc,1,2) R:size(nc,1,1)
+        xc, R = self.genPoint.weight_centers(n_center=nc, R_max=1e-4, R_min=1e-4)
         xc, R = xc.to(self.device), R.to(self.device)
 
         x = self.int_grid * R + xc
@@ -152,7 +198,7 @@ class DarcyFlowContinuous(ProblemInstance):
         v = self.v.repeat((nc, 1, 1)).reshape(-1, 1)
         dv = (self.dv_dr / R).reshape(-1, 2)
 
-        a_detach = self._fun_a(x.detach(), a)
+        a_detach = self.fun_a(x.detach(), a)
         u = self.model_dict['u'](x, beta)
         u = self.mollifier(u, x)
 
@@ -166,7 +212,7 @@ class DarcyFlowContinuous(ProblemInstance):
         right = torch.mean(right, dim=-1)
 
         res = (left - right) ** 2
-        res, _ = torch.sort(res.flatten(), descending=True, dim=0)
+        res, indices = torch.sort(res.flatten(), descending=True, dim=0)
         loss_res = torch.sum(res[0:nc * 10])
 
         return self.get_loss(left, right) + loss_res
