@@ -1,5 +1,0 @@
-factor: 0.5
-gamma: 0.5
-patience: 20
-step_size: 400
-type: StepLR
