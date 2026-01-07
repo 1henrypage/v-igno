@@ -1,7 +1,7 @@
 # Training Configuration
 
 run_name: "darcy_experiment"
-device: "cuda"
+device: "mps"
 artifact_root: "runs"
 seed: 10086
 
