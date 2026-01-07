@@ -2,13 +2,12 @@
 import torch
 import pytest
 
+from solver import NFConfig
 from src.components.nf import (
     ScaleTranslateNet,
     CouplingLayer,
     RealNVP,
-    create_2d_mixture_data,
 )
-from src.solver.config import SecondStageConfig
 
 
 # -------------------------
@@ -22,18 +21,36 @@ def device():
 
 @pytest.fixture
 def small_config():
-    return SecondStageConfig(
+    return NFConfig(
         dim=2,
         num_flows=2,
         hidden_dim=32,
-        num_layers=2,
+        num_layers=2
     )
 
 
 @pytest.fixture
 def toy_data():
     torch.manual_seed(0)
-    return create_2d_mixture_data(n_samples=256)
+
+    n_samples = 256
+
+    # Two-component Gaussian mixture
+    means = torch.tensor([
+        [-2.0, 0.0],
+        [ 2.0, 0.0],
+    ])
+
+    std = 0.5
+
+    # Sample mixture components
+    component_ids = torch.randint(0, 2, (n_samples,))
+
+    # Sample points
+    noise = std * torch.randn(n_samples, 2)
+    samples = means[component_ids] + noise
+
+    return samples
 
 
 # -------------------------
@@ -113,10 +130,10 @@ def test_realnvp_log_det_is_zero_at_init(small_config):
 
     assert torch.allclose(log_det, torch.zeros_like(log_det), atol=1e-6)
 
-def test_realnvp_sample_shape_and_finiteness(small_config):
+def test_realnvp_sample_shape_and_finiteness(small_config, device):
     model = RealNVP(small_config)
 
-    samples = model.sample(128)
+    samples = model.sample(128, device=device)
 
     assert samples.shape == (128, small_config.dim)
     assert torch.isfinite(samples).all()
