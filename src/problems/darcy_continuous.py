@@ -9,7 +9,6 @@ Everything in constructor:
 import torch
 import torch.nn as nn
 import numpy as np
-import h5py
 from torch.autograd import grad, Variable
 from typing import Dict
 from pathlib import Path
@@ -21,6 +20,7 @@ from src.utils.TestFun_ParticleWNN import TestFun_ParticleWNN
 from src.utils.misc_utils import np2tensor
 from src.utils.RBFInterpolatorMesh import RBFInterpolator
 from src.utils.solver_utils import get_model
+from src.utils.npy_loader import NpyFile
 
 
 class TorchMollifier:
@@ -42,8 +42,8 @@ class DarcyFlowContinuous(ProblemInstance):
     # =========================================================================
 
     # Data paths
-    TRAIN_DATA_PATH = "data/darcyflow_continuous/smh_train.mat"
-    TEST_DATA_PATH = "data/darcyflow_continuous/smh_test_in.mat"
+    TRAIN_DATA_PATH = "data/darcyflow_continuous/smh_train/"
+    TEST_DATA_PATH = "data/darcyflow_continuous/smh_test_in/"
 
     def __init__(self, device=None, dtype=torch.float32, seed: int = 10086):
         super().__init__(device=device, dtype=dtype, seed=seed)
@@ -112,7 +112,7 @@ class DarcyFlowContinuous(ProblemInstance):
         if not path.exists():
             raise FileNotFoundError(f"Data file not found: {path}")
 
-        data = h5py.File(path, 'r')
+        data = NpyFile(path=path, mode='r')
 
         a = np2tensor(np.array(data["coeff"]).T, self.dtype)
         u = np2tensor(np.array(data["sol"]).T, self.dtype)
