@@ -131,7 +131,13 @@ class FoundationTrainer(BaseTrainer):
                 self.scheduler.step(avg_error) if cfg.scheduler.type == 'Plateau' else self.scheduler.step()
 
             if (epoch + 1) % cfg.epoch_show == 0:
-                print(f"\nEpoch {epoch+1}: Loss={avg_loss:.4f}, Error={avg_error:.4f}")
+                print(
+                    f"\nEpoch {epoch + 1} | "
+                    f"Loss: {avg_loss:.4f} | "
+                    f"PDE: {pde_sum / n_train:.4f} | "
+                    f"Data: {data_sum / n_train:.4f} | "
+                    f"Error: {avg_error:.4f}"
+                )
 
         self.save_checkpoint('last_dgno.pt', cfg.epochs - 1)
         return {'best_error': best_error, 'time': time.time() - t_start}
