@@ -1,8 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=igno_training # Job name
-#SBATCH --qos=medium # Request QoS (short=4h, medium=2d, long=7d)
+#SBATCH --job-name=igno_training        # Job name
+#SBATCH --qos=medium                    # Request QoS (short=4h, medium=2d, long=7d)
 #SBATCH --time=14:00:00                 # Request run time (wall-clock)
-#SBATCH --gres=gpu:l40:1                # Request 1 A40 GPU (options: a40, l40, v100, turing)
+#SBATCH --ntasks=1                      # Number of (gpu) tasks (keep at 1)
+#SBATCH --cpus-per-task=8               # 8 CPU cores (good for data loading)
+#SBATCH --mem=64G                       # 64GB RAM (adjust if needed)
+#SBATCH --gres=gpu:l40:1                # Request 1 L40 GPU
 #SBATCH --output=slurm_logs/job_%j.out  # Set name of output log (%j = jobID)
 #SBATCH --error=slurm_logs/job_%j.err   # Set name of error log (%j = jobID)
 #SBATCH --mail-type=END,FAIL            # Send email on job end/failure
