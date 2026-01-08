@@ -41,9 +41,8 @@ echo "=============================================="
 # Navigate to project directory
 # =============================================================================
 
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR" || exit 1
+# Use SLURM_SUBMIT_DIR instead of BASH_SOURCE
+cd "$SLURM_SUBMIT_DIR" || exit 1
 
 echo "Working directory: $(pwd)"
 echo "=============================================="
