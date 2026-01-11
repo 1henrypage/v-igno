@@ -1,0 +1,45 @@
+# Evaluation Configuration for Inverse Problems
+# All models are loaded from pretrained checkpoint - no architecture needed
+
+run_name: "igno_evaluation"
+device: "cuda"
+seed: 10086
+
+problem:
+  type: "darcy_flow_continuous"
+  test_data: "data/darcy_continuous/smh_test_in.mat"
+
+# REQUIRED: Pretrained model weights (contains all models + NF config)
+pretrained:
+  path: "runs/YOUR_RUN_DIR/foundation/weights/best.pt"
+
+# Evaluation settings
+evaluation:
+  method: "igno"  # "igno" or "encoder"
+
+  # Observation setup
+  n_obs: 100              # Number of observation points
+  obs_sampling: "random"  # "random", "grid", or "lhs"
+  obs_seed: 42            # Seed for observation sampling (reproducibility)
+
+  # Noise (SNR-based, same as IGNO paper)
+  # Set to null for clean observations
+  snr_db: 25.0            # 20, 25, 50, 100 are common values
+
+  # IGNO inversion parameters
+  inversion:
+    epochs: 1000
+    loss_weights:
+      pde: 1.0
+      data: 25.0
+    optimizer:
+      type: Adam
+      lr: 0.01
+      weight_decay: 0.0001
+    scheduler:
+      type: StepLR
+      step_size: 250
+      gamma: 0.6
+
+  # Output directory for results
+  results_dir: "results"

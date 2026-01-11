@@ -1,5 +1,5 @@
 """
-Training configuration. Single YAML file.
+Training and evaluation configuration. Single YAML file.
 """
 from dataclasses import dataclass, asdict, field, fields
 from typing import Literal, Optional, List, Dict, Any, Type, TypeVar
@@ -39,10 +39,21 @@ class BaseConfig:
         return _serialize(asdict(self))
 
 
+# =============================================================================
+# Problem Config
+# =============================================================================
+
 @dataclass
 class ProblemConfig(BaseConfig):
+    """Problem type and data paths."""
     type: str = "darcy_flow_continuous"
+    train_data: str = "data/darcy_continuous/smh_train.mat"
+    test_data: str = "data/darcy_continuous/smh_test_in.mat"
 
+
+# =============================================================================
+# Training Components
+# =============================================================================
 
 @dataclass
 class OptimizerConfig(BaseConfig):
@@ -73,6 +84,10 @@ class NFConfig(BaseConfig):
     hidden_dim: int = 128
     num_layers: int = 2
 
+
+# =============================================================================
+# Training Phase Configs
+# =============================================================================
 
 @dataclass
 class DGNOConfig(BaseConfig):
@@ -147,9 +162,71 @@ class EncoderConfig(BaseConfig):
         )
 
 
+# =============================================================================
+# Evaluation Configs
+# =============================================================================
+
+@dataclass
+class InversionConfig(BaseConfig):
+    """Config for gradient-based inversion."""
+    epochs: int = 1000
+    loss_weights: LossWeights = field(default_factory=lambda: LossWeights(pde=1.0, data=25.0))
+    optimizer: OptimizerConfig = field(default_factory=lambda: OptimizerConfig(lr=0.01, weight_decay=1e-4))
+    scheduler: SchedulerConfig = field(default_factory=lambda: SchedulerConfig(type='StepLR', step_size=250, gamma=0.6))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'InversionConfig':
+        if data is None:
+            return cls()
+        return cls(
+            epochs=data.get('epochs', 1000),
+            loss_weights=LossWeights.from_dict(data.get('loss_weights', {'pde': 1.0, 'data': 25.0})),
+            optimizer=OptimizerConfig.from_dict(data.get('optimizer', {'lr': 0.01, 'weight_decay': 1e-4})),
+            scheduler=SchedulerConfig.from_dict(data.get('scheduler', {'type': 'StepLR', 'step_size': 250, 'gamma': 0.6})),
+        )
+
+
+@dataclass
+class EvaluationConfig(BaseConfig):
+    """Config for evaluation/inversion."""
+    method: Literal['igno', 'encoder'] = 'igno'
+
+    # Observation setup
+    n_obs: int = 100
+    obs_sampling: Literal['random', 'grid', 'lhs'] = 'random'
+    obs_seed: int = 42
+
+    # Noise (None for clean)
+    snr_db: Optional[float] = 25.0
+
+    # Inversion params
+    inversion: InversionConfig = field(default_factory=InversionConfig)
+
+    # Output
+    results_dir: str = "results"
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'EvaluationConfig':
+        if data is None:
+            return cls()
+        return cls(
+            method=data.get('method', 'igno'),
+            n_obs=data.get('n_obs', 100),
+            obs_sampling=data.get('obs_sampling', 'random'),
+            obs_seed=data.get('obs_seed', 42),
+            snr_db=data.get('snr_db', 25.0),
+            inversion=InversionConfig.from_dict(data.get('inversion', {})),
+            results_dir=data.get('results_dir', 'results'),
+        )
+
+
+# =============================================================================
+# Main Config
+# =============================================================================
+
 @dataclass
 class TrainingConfig(BaseConfig):
-    """Main config."""
+    """Main config for training and evaluation."""
     run_name: str = "experiment"
     device: str = "cuda"
     artifact_root: str = "runs"
@@ -159,9 +236,13 @@ class TrainingConfig(BaseConfig):
     stages: List[str] = field(default_factory=lambda: ["foundation"])
     pretrained: Optional[Dict[str, Any]] = None
 
+    # Training phase configs
     dgno: DGNOConfig = field(default_factory=DGNOConfig)
     nf: NFTrainConfig = field(default_factory=NFTrainConfig)
     encoder: EncoderConfig = field(default_factory=EncoderConfig)
+
+    # Evaluation config
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
     @classmethod
     def from_dict(cls, data: dict) -> 'TrainingConfig':
@@ -183,6 +264,7 @@ class TrainingConfig(BaseConfig):
             dgno=DGNOConfig.from_dict(data.get('dgno', {})),
             nf=NFTrainConfig.from_dict(data.get('nf', {})),
             encoder=EncoderConfig.from_dict(data.get('encoder', {})),
+            evaluation=EvaluationConfig.from_dict(data.get('evaluation', {})),
         )
 
     @classmethod

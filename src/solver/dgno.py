@@ -24,6 +24,7 @@ class FoundationTrainer(BaseTrainer):
         super().__init__(device=problem.device, dtype=problem.dtype)
         self.problem = problem
         self.nf = None
+        self.nf_config = None  # Store for saving in checkpoint
 
     def _create_run_dir(self, config: TrainingConfig) -> Path:
         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
@@ -40,7 +41,10 @@ class FoundationTrainer(BaseTrainer):
         self.setup_tensorboard()
 
         problem_models = self.problem.get_model_dict()
-        self.nf = RealNVP(config=config.nf.nf).to(self.device)
+
+        # Store NF config for checkpoint
+        self.nf_config = config.nf.nf
+        self.nf = RealNVP(config=self.nf_config).to(self.device)
 
         self.model_dict = {**problem_models, 'nf': self.nf}
         for m in self.model_dict.values():
@@ -53,6 +57,28 @@ class FoundationTrainer(BaseTrainer):
 
         config.save(self.run_dir / "config.yaml")
         print(f"Run directory: {self.run_dir}")
+
+    def save_checkpoint(self, filename: str, epoch: int, metric: Optional[float] = None,
+                        metric_name: Optional[str] = None, extra: Optional[Dict] = None) -> Path:
+        """Override to include NF config."""
+        state = {
+            'models': {name: m.state_dict() for name, m in self.model_dict.items()},
+            'epoch': epoch,
+            'timestamp': datetime.now().isoformat(),
+            'nf_config': self.nf_config.to_dict() if self.nf_config else None,
+        }
+        if metric is not None:
+            state['metric'] = metric
+            state['metric_name'] = metric_name
+        if self.optimizer:
+            state['optimizer'] = self.optimizer.state_dict()
+        if self.scheduler:
+            state['scheduler'] = self.scheduler.state_dict()
+        if extra:
+            state.update(extra)
+        path = self.weights_dir / filename
+        torch.save(state, path)
+        return path
 
     def train(self, config: TrainingConfig, skip_dgno: bool = False, skip_nf: bool = False) -> Dict[str, Any]:
         """Train using data from problem instance."""
@@ -85,8 +111,6 @@ class FoundationTrainer(BaseTrainer):
         t_start = time.time()
         best_error = float('inf')
         weights = cfg.loss_weights
-
-        print(f'DGNO Training using device: {self.device}')
 
         for epoch in trange(cfg.epochs, desc="DGNO"):
             self.train_mode()
@@ -131,13 +155,7 @@ class FoundationTrainer(BaseTrainer):
                 self.scheduler.step(avg_error) if cfg.scheduler.type == 'Plateau' else self.scheduler.step()
 
             if (epoch + 1) % cfg.epoch_show == 0:
-                print(
-                    f"\nEpoch {epoch + 1} | "
-                    f"Loss: {avg_loss:.4f} | "
-                    f"PDE: {pde_sum / n_train:.4f} | "
-                    f"Data: {data_sum / n_train:.4f} | "
-                    f"Error: {avg_error:.4f}"
-                )
+                print(f"\nEpoch {epoch+1}: Loss={avg_loss:.4f}, Error={avg_error:.4f}")
 
         self.save_checkpoint('last_dgno.pt', cfg.epochs - 1)
         return {'best_error': best_error, 'time': time.time() - t_start}
@@ -158,8 +176,8 @@ class FoundationTrainer(BaseTrainer):
         latents_train = self._extract_latents(train_data['a'], cfg.batch_size)
         latents_test = self._extract_latents(test_data['a'], cfg.batch_size)
 
-        train_loader = var_data_loader(latents_train, batch_size=cfg.batch_size, shuffle=True)
-        test_loader = var_data_loader(latents_test, batch_size=cfg.batch_size, shuffle=False)
+        train_loader = var_data_loader(latents_train, cfg.batch_size, shuffle=True)
+        test_loader = var_data_loader(latents_test, cfg.batch_size, shuffle=False)
 
         t_start = time.time()
         best_nll = float('inf')
@@ -207,5 +225,4 @@ class FoundationTrainer(BaseTrainer):
         with torch.no_grad():
             for i in range(0, len(a), batch_size):
                 latents.append(enc(a[i:i+batch_size].to(self.device)).cpu())
-
         return torch.cat(latents, dim=0)
