@@ -6,7 +6,6 @@ PDE loss + data loss, starting from NF sample.
 """
 import torch
 import torch.nn as nn
-from typing import Dict, Optional
 from tqdm import trange
 
 from src.problems import ProblemInstance
