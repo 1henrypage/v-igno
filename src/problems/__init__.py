@@ -16,7 +16,7 @@ For inversion/encoder (optional):
 - loss_data_from_beta(beta, x, target, target_type): Data loss directly from beta
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Type, Callable
+from typing import Dict, Optional, Type, Callable, Literal
 import numpy as np
 import torch
 import torch.nn as nn
@@ -148,6 +148,7 @@ class ProblemInstance(ABC):
     # From-beta methods (for inversion/encoder - optional, implement in subclass)
     # =========================================================================
 
+    @abstractmethod
     def loss_pde_from_beta(self, beta: torch.Tensor) -> torch.Tensor:
         """
         Compute PDE loss given beta directly (skips encoding).
@@ -156,8 +157,9 @@ class ProblemInstance(ABC):
         """
         raise NotImplementedError("Implement loss_pde_from_beta() for inversion support")
 
+    @abstractmethod
     def loss_data_from_beta(self, beta: torch.Tensor, x: torch.Tensor,
-                            target: torch.Tensor, target_type: str = 'u') -> torch.Tensor:
+                            target: torch.Tensor, target_type: str = Literal['a', 'u']) -> torch.Tensor:
         """
         Compute data loss given beta directly (skips encoding).
 
@@ -221,16 +223,6 @@ class ProblemInstance(ABC):
         elif method == "grid":
             step = max(1, n_total // n_obs)
             return np.arange(0, n_total, step)[:n_obs]
-        elif method == "lhs":
-            try:
-                from scipy.stats import qmc
-                sampler = qmc.LatinHypercube(d=1, seed=seed)
-                samples = sampler.random(n=n_obs)
-                indices = (samples * n_total).astype(int).flatten()
-                return np.sort(np.clip(indices, 0, n_total - 1))
-            except ImportError:
-                print("scipy not available for LHS, falling back to random")
-                return np.sort(np.random.choice(n_total, n_obs, replace=False))
         else:
             raise ValueError(f"Unknown sampling method: {method}")
 
@@ -273,6 +265,16 @@ class ProblemInstance(ABC):
             self.init_error()
         elif (self.get_loss is None) != (self.get_error is None):
             raise ValueError("Both get_loss and get_error must be set, or both None")
+
+    @abstractmethod
+    def get_n_test_samples(self) -> int:
+        """Get number of test samples."""
+        raise NotImplementedError("Number of test samples needs to be defined per-problem.")
+
+    @abstractmethod
+    def get_n_points(self) -> int:
+        """Get number of grid points per sample."""
+        raise NotImplementedError("Number of grid points needs to be defined per-problem.")
 
 
 def create_problem(config, load_train_data: bool = True) -> ProblemInstance:
