@@ -9,6 +9,7 @@ seed: 10086
 problem:
   type: "darcy_continuous"
   train_data: "data/darcy_continuous/smh_train/"
+  test_data: "data/darcy_continuous/smh_test_in"
 
 stages:
   - foundation
