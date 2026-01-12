@@ -35,17 +35,17 @@ dgno:
 # Phase 2: NF (normalizing flow on latents)
 # Note: NF architecture (dim, num_flows, hidden_dim, num_layers) is
 # hardcoded in the problem's _build_models() method
-#nf:
-#  epochs: 10000
-#  batch_size: 50
-#  epoch_show: 100
-#  optimizer:
-#    type: Adam
-#    lr: 0.001
-#  scheduler:
-#    type: StepLR
-#    step_size: 2500
-#    gamma: 0.5
+nf:
+  epochs: 10000
+  batch_size: 50
+  epoch_show: 100
+  optimizer:
+    type: Adam
+    lr: 0.001
+  scheduler:
+    type: StepLR
+    step_size: 2500
+    gamma: 0.5
 
 # Optional: Encoder training (separate phase)
 encoder:
