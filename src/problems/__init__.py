@@ -459,5 +459,5 @@ def create_problem(config, load_train_data: bool = True) -> ProblemInstance:
 
 
 # Auto-register problems
-from src.problems.darcy_continuous import DarcyFlowContinuous
+from src.problems.darcy_continuous import DarcyContinuous
 

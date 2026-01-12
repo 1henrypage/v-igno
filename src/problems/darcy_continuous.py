@@ -37,8 +37,8 @@ class TorchMollifier:
         return u.unsqueeze(-1)
 
 
-@register_problem("darcy_flow_continuous")
-class DarcyFlowContinuous(ProblemInstance):
+@register_problem("darcy_continuous")
+class DarcyContinuous(ProblemInstance):
     """
     Continuous Darcy flow problem.
 
