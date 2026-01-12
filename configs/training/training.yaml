@@ -9,7 +9,7 @@ seed: 10086
 problem:
   type: "darcy_continuous"
   train_data: "data/darcy_continuous/smh_train/"
-  test_data: "data/darcy_continuous/smh_test_in"
+  test_data: "data/darcy_continuous/smh_test_in/"
 
 stages:
   - foundation
@@ -28,6 +28,7 @@ dgno:
   optimizer:
     type: Adam
     lr: 0.001
+    weight_decay: 0.0001
   scheduler:
     type: StepLR
     step_size: 2500
@@ -43,6 +44,7 @@ nf:
   optimizer:
     type: Adam
     lr: 0.001
+    weight_decay: 0.0001
   scheduler:
     type: StepLR
     step_size: 2500
@@ -55,9 +57,13 @@ encoder:
   epoch_show: 100
   freeze_decoder: true
   freeze_nf: true
+  loss_weights:
+    pde: 0
+    data: 0
   optimizer:
     type: Adam
     lr: 0.0001
+    weight_decay: 0.0001
   scheduler:
     type: Plateau
     patience: 50
