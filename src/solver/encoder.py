@@ -7,7 +7,6 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
 
-from src.solver.base import BaseTrainer
 from src.solver.config import TrainingConfig
 from src.problems import ProblemInstance
 from src.components.nf import RealNVP

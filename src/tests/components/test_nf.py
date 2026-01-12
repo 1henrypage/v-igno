@@ -8,7 +8,6 @@ from src.components.nf import (
     RealNVP,
 )
 
-
 # -------------------------
 # Fixtures
 # -------------------------
