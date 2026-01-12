@@ -75,8 +75,8 @@ class SchedulerConfig(BaseConfig):
 
 @dataclass
 class LossWeights(BaseConfig):
-    pde: float
-    data: float
+    pde: float = None
+    data: float = None
 
 
 # =============================================================================
@@ -175,9 +175,9 @@ class InversionConfig(BaseConfig):
             return cls()
         return cls(
             epochs=data.get('epochs', 1000),
-            loss_weights=LossWeights.from_dict(data.get('loss_weights', {'pde': None, 'data': None})),
-            optimizer=OptimizerConfig.from_dict(data.get('optimizer', {'lr': None, 'weight_decay': None})),
-            scheduler=SchedulerConfig.from_dict(data.get('scheduler', {'type': None, 'step_size': None, 'gamma': None})),
+            loss_weights=LossWeights.from_dict(data.get('loss_weights', {})),
+            optimizer=OptimizerConfig.from_dict(data.get('optimizer', {})),
+            scheduler=SchedulerConfig.from_dict(data.get('scheduler', {})),
         )
 
 
