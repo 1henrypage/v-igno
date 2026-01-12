@@ -7,6 +7,7 @@ seed: 10086
 
 problem:
   type: "darcy_flow_continuous"
+  test_data: "data/darcyflow_continuous/smh_test_in/"
 
 stages:
   - foundation

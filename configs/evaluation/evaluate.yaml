@@ -7,11 +7,11 @@ seed: 10086
 
 problem:
   type: "darcy_flow_continuous"
-  test_data: "data/darcy_continuous/smh_test_in.mat"
+  test_data: "data/darcyflow_continuous/smh_test_in/"
 
 # REQUIRED: Pretrained model weights (contains all models + NF config)
 pretrained:
-  path: "runs/YOUR_RUN_DIR/foundation/weights/best.pt"
+  path: "runs/2026-01-08_01-53-52_darcy_flow_continuous_igno/foundation/weights/best.pt"
 
 # Evaluation settings
 evaluation:
@@ -19,16 +19,16 @@ evaluation:
 
   # Observation setup
   n_obs: 100              # Number of observation points
-  obs_sampling: "random"  # "random", "grid", or "lhs"
-  obs_seed: 42            # Seed for observation sampling (reproducibility)
+  obs_sampling: "random"  # "random", "grid"
+  obs_seed: 10086 # Seed for observation sampling (reproducibility)
 
   # Noise (SNR-based, same as IGNO paper)
   # Set to null for clean observations
-  snr_db: 25.0            # 20, 25, 50, 100 are common values
+  snr_db: null            # 20, 25, 50, 100 are common values
 
   # IGNO inversion parameters
   inversion:
-    epochs: 1000
+    epochs: 3
     loss_weights:
       pde: 1.0
       data: 25.0

@@ -58,6 +58,14 @@ class DarcyFlowContinuous(ProblemInstance):
         if self.train_data_path:
             self.train_data, self.gridx_train = self._load_data(self.train_data_path)
             print(f"  Train: a={self.train_data['a'].shape}, u={self.train_data['u'].shape}")
+            self.fun_a = RBFInterpolator(
+                x_mesh=self.gridx_train,
+                kernel='gaussian',
+                eps=25.,
+                smoothing=0.,
+                degree=6,
+                dtype=self.dtype
+            )
 
         if self.test_data_path:
             self.test_data, self.gridx_test = self._load_data(self.test_data_path)
@@ -85,14 +93,7 @@ class DarcyFlowContinuous(ProblemInstance):
         self.v = v.to(self.device)
         self.dv_dr = dv_dr.to(self.device)
         self.n_grid = int_grid.shape[0]
-        self.fun_a = RBFInterpolator(
-                    x_mesh=self.gridx_train,
-                    kernel='gaussian',
-                    eps=25.,
-                    smoothing=0.,
-                    degree=6,
-                    dtype=self.dtype
-        )
+
 
         print(f"  int_grid: {self.int_grid.shape}, v: {self.v.shape}")
 

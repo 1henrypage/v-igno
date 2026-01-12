@@ -254,12 +254,12 @@ class TrainingConfig(BaseConfig):
             problem_data = {'type': problem_data}
 
         return cls(
-            run_name=data.get('run_name', 'experiment'),
-            device=data.get('device', 'cuda'),
+            run_name=data.get('run_name'),
+            device=data.get('device'),
             artifact_root=data.get('artifact_root', 'runs'),
-            seed=data.get('seed', 10086),
+            seed=data.get('seed'),
             problem=ProblemConfig.from_dict(problem_data),
-            stages=data.get('stages', ['foundation']),
+            stages=data.get('stages'),
             pretrained=data.get('pretrained'),
             dgno=DGNOConfig.from_dict(data.get('dgno', {})),
             nf=NFTrainConfig.from_dict(data.get('nf', {})),
