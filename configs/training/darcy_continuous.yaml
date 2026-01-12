@@ -2,7 +2,7 @@
 # NF architecture is hardcoded per-problem in _build_models()
 
 run_name: "darcy_continuous"
-device: "mps"
+device: "cuda"
 artifact_root: "runs"
 seed: 10086
 
@@ -19,7 +19,7 @@ stages:
 
 # Phase 1: DGNO (encoder + decoders)
 dgno:
-  epochs: 1
+  epochs: 10000
   batch_size: 50
   epoch_show: 50
   loss_weights:
@@ -38,7 +38,7 @@ dgno:
 # Note: NF architecture (dim, num_flows, hidden_dim, num_layers) is
 # hardcoded in the problem's _build_models() method
 nf:
-  epochs: 2
+  epochs: 10000
   batch_size: 50
   epoch_show: 100
   optimizer:

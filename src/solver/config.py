@@ -165,9 +165,9 @@ class EncoderConfig(BaseConfig):
 class InversionConfig(BaseConfig):
     """Config for gradient-based inversion."""
     epochs: int = 1000
-    loss_weights: LossWeights = field(default_factory=lambda: LossWeights(pde=1.0, data=25.0))
-    optimizer: OptimizerConfig = field(default_factory=lambda: OptimizerConfig(lr=0.01, weight_decay=1e-4))
-    scheduler: SchedulerConfig = field(default_factory=lambda: SchedulerConfig(type='StepLR', step_size=250, gamma=0.6))
+    loss_weights: LossWeights =  None
+    optimizer: OptimizerConfig = None
+    scheduler: SchedulerConfig = None
 
     @classmethod
     def from_dict(cls, data: dict) -> 'InversionConfig':
@@ -175,9 +175,9 @@ class InversionConfig(BaseConfig):
             return cls()
         return cls(
             epochs=data.get('epochs', 1000),
-            loss_weights=LossWeights.from_dict(data.get('loss_weights', {'pde': 1.0, 'data': 25.0})),
-            optimizer=OptimizerConfig.from_dict(data.get('optimizer', {'lr': 0.01, 'weight_decay': 1e-4})),
-            scheduler=SchedulerConfig.from_dict(data.get('scheduler', {'type': 'StepLR', 'step_size': 250, 'gamma': 0.6})),
+            loss_weights=LossWeights.from_dict(data.get('loss_weights', {'pde': None, 'data': None})),
+            optimizer=OptimizerConfig.from_dict(data.get('optimizer', {'lr': None, 'weight_decay': None})),
+            scheduler=SchedulerConfig.from_dict(data.get('scheduler', {'type': None, 'step_size': None, 'gamma': None})),
         )
 
 
@@ -192,7 +192,7 @@ class EvaluationConfig(BaseConfig):
     obs_seed: int = 42
 
     # Noise (None for clean)
-    snr_db: Optional[float] = 25.0
+    snr_db: Optional[float] = None
 
     # Inversion params
     inversion: InversionConfig = field(default_factory=InversionConfig)
@@ -222,8 +222,8 @@ class EvaluationConfig(BaseConfig):
 @dataclass
 class TrainingConfig(BaseConfig):
     """Main config for training and evaluation."""
-    run_name: str = "experiment"
-    device: str = "cuda"
+    run_name: str
+    device: str
     artifact_root: str = "runs"
     seed: int = 10086
 
@@ -249,8 +249,8 @@ class TrainingConfig(BaseConfig):
             problem_data = {'type': problem_data}
 
         return cls(
-            run_name=data.get('run_name', 'experiment'),
-            device=data.get('device', 'cuda'),
+            run_name=data.get('run_name'),
+            device=data.get('device'),
             artifact_root=data.get('artifact_root', 'runs'),
             seed=data.get('seed', 10086),
             problem=ProblemConfig.from_dict(problem_data),
