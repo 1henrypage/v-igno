@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=igno_training        # Job name
+#SBATCH --job-name=darcy_continuous     # Job name
 #SBATCH --qos=medium                    # Request QoS (short=4h, medium=2d, long=7d)
 #SBATCH --time=14:00:00                 # Request run time (wall-clock)
 #SBATCH --ntasks=1                      # Number of (gpu) tasks (keep at 1)
@@ -55,8 +55,8 @@ echo "=============================================="
 # =============================================================================
 
 # Use provided config file or default
-CONFIG_FILE="${1:-configs/example_config.yaml}"
-shift || true  # Remove first argument if it exists
+CONFIG_FILE="${1:?config file required}"
+shift
 
 # Check if config file exists
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -73,13 +73,13 @@ echo "=============================================="
 # =============================================================================
 
 echo "Starting training..."
-echo "Command: uv run python run_training.py --config $CONFIG_FILE $*"
+echo "Command: uv run python training.py --config $CONFIG_FILE $*"
 echo "=============================================="
 
 
 # Run the training script with srun
 # srun ensures proper resource allocation and process management
-srun uv run python run_training.py --config "$CONFIG_FILE" "$@"
+srun uv run python training.py --config "$CONFIG_FILE" "$@"
 
 # Capture exit status
 EXIT_STATUS=$?
