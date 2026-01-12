@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1                      # Number of (gpu) tasks (keep at 1)
 #SBATCH --cpus-per-task=8               # 8 CPU cores (good for data loading)
 #SBATCH --mem=64G                       # 64GB RAM (adjust if needed)
-#SBATCH --gres=gpu:l40:1                # Request 1 L40 GPU
+#SBATCH --gres=gpu:a40:1                # Request 1 L40 GPU
 #SBATCH --output=slurm_logs/job_%j.out  # Set name of output log (%j = jobID)
 #SBATCH --error=slurm_logs/job_%j.err   # Set name of error log (%j = jobID)
 #SBATCH --mail-type=END,FAIL            # Send email on job end/failure
