@@ -2,7 +2,6 @@
 import torch
 import pytest
 
-from solver import NFConfig
 from src.components.nf import (
     ScaleTranslateNet,
     CouplingLayer,
@@ -21,12 +20,12 @@ def device():
 
 @pytest.fixture
 def small_config():
-    return NFConfig(
-        dim=2,
-        num_flows=2,
-        hidden_dim=32,
-        num_layers=2
-    )
+    return {
+        "dim": 2,
+        "num_flows":2,
+        "hidden_dim": 32,
+        "num_layers": 2,
+    }
 
 
 @pytest.fixture

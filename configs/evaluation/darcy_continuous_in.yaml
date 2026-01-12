@@ -28,10 +28,10 @@ evaluation:
 
   # IGNO inversion parameters
   inversion:
-    epochs: 1000
+    epochs: 500
     loss_weights:
       pde: 1.0
-      data: 25.0
+      data: 50.0
     optimizer:
       type: Adam
       lr: 0.01
