@@ -1,5 +1,7 @@
 """
 Training and evaluation configuration. Single YAML file.
+
+NF architecture is hardcoded per-problem (in _build_models), not in config.
 """
 from dataclasses import dataclass, asdict, field, fields
 from typing import Literal, Optional, List, Dict, Any, Type, TypeVar
@@ -77,20 +79,13 @@ class LossWeights(BaseConfig):
     data: float = 1.0
 
 
-@dataclass
-class NFConfig(BaseConfig):
-    dim: int = 64
-    num_flows: int = 8
-    hidden_dim: int = 128
-    num_layers: int = 2
-
-
 # =============================================================================
 # Training Phase Configs
 # =============================================================================
 
 @dataclass
 class DGNOConfig(BaseConfig):
+    """Config for DGNO (encoder-decoder) training phase."""
     epochs: int = 1000
     batch_size: int = 100
     epoch_show: int = 100
@@ -114,10 +109,10 @@ class DGNOConfig(BaseConfig):
 
 @dataclass
 class NFTrainConfig(BaseConfig):
+    """Config for NF training phase (architecture is in problem, not here)."""
     epochs: int = 1000
     batch_size: int = 100
     epoch_show: int = 100
-    nf: NFConfig = field(default_factory=NFConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
 
@@ -129,7 +124,6 @@ class NFTrainConfig(BaseConfig):
             epochs=data.get('epochs', 1000),
             batch_size=data.get('batch_size', 100),
             epoch_show=data.get('epoch_show', 100),
-            nf=NFConfig.from_dict(data.get('nf', {})),
             optimizer=OptimizerConfig.from_dict(data.get('optimizer', {})),
             scheduler=SchedulerConfig.from_dict(data.get('scheduler', {})),
         )
@@ -137,6 +131,7 @@ class NFTrainConfig(BaseConfig):
 
 @dataclass
 class EncoderConfig(BaseConfig):
+    """Config for encoder training phase (if used separately)."""
     epochs: int = 1000
     batch_size: int = 100
     epoch_show: int = 100
@@ -254,12 +249,12 @@ class TrainingConfig(BaseConfig):
             problem_data = {'type': problem_data}
 
         return cls(
-            run_name=data.get('run_name'),
-            device=data.get('device'),
+            run_name=data.get('run_name', 'experiment'),
+            device=data.get('device', 'cuda'),
             artifact_root=data.get('artifact_root', 'runs'),
-            seed=data.get('seed'),
+            seed=data.get('seed', 10086),
             problem=ProblemConfig.from_dict(problem_data),
-            stages=data.get('stages'),
+            stages=data.get('stages', ['foundation']),
             pretrained=data.get('pretrained'),
             dgno=DGNOConfig.from_dict(data.get('dgno', {})),
             nf=NFTrainConfig.from_dict(data.get('nf', {})),
@@ -289,3 +284,4 @@ class TrainingConfig(BaseConfig):
         stage = self.pretrained.get('stage', 'foundation')
         checkpoint = self.pretrained.get('checkpoint', 'best.pt')
         return path / stage / 'weights' / checkpoint
+

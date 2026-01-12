@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 from typing import Tuple
 
-from src.solver.config import NFConfig
 from src.utils.misc_utils import get_default_device
 
 
@@ -88,18 +87,37 @@ class CouplingLayer(nn.Module):
 class RealNVP(nn.Module):
     """RealNVP normalizing flow."""
 
-    def __init__(self, config: NFConfig):
+    def __init__(
+        self,
+        dim: int = None,
+        num_flows: int = None,
+        hidden_dim: int = None,
+        num_layers: int = None,
+        config=None,
+     ):
         super().__init__()
-        self.dim = config.dim
+
+
+
+        if config is not None:
+            dim = config.dim
+            num_flows = config.num_flows
+            hidden_dim = config.hidden_dim
+            num_layers = config.num_layers
+
+        assert all(value is not None for value in [dim, num_flows, hidden_dim, num_layers])
+
+
+        self.dim = dim
 
         self.flows = nn.ModuleList([
             CouplingLayer(
-                dim=config.dim,
-                hidden_dim=config.hidden_dim,
-                num_layers=config.num_layers,
+                dim=dim,
+                hidden_dim=hidden_dim,
+                num_layers=num_layers,
                 flip_mask=(i % 2 == 1)
             )
-            for i in range(config.num_flows)
+            for i in range(num_flows)
         ])
 
         self.register_buffer("log_2pi", torch.log(torch.tensor(2 * torch.pi)))

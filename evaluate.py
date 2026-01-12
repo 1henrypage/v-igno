@@ -5,8 +5,7 @@ Evaluation script for inverse problems.
 Runs IGNO-style gradient inversion (or encoder-based) on test set
 and computes metrics.
 
-All models (encoder, decoders, NF) are loaded from pretrained checkpoint.
-No need to specify architecture in config.
+All models are loaded from pretrained checkpoint into the ProblemInstance.
 
 Usage:
     python evaluate.py --config configs/evaluate.yaml
@@ -23,168 +22,11 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent))
 
 import torch
-import torch.nn as nn
 from tqdm import trange
 
 from src.solver.config import TrainingConfig
 from src.problems import create_problem
 from src.evaluation import IGNOInverter, EncoderInverter, compute_all_metrics, aggregate_metrics
-
-
-def load_pretrained(checkpoint_path: Path, problem, device):
-    """
-    Load all pretrained models from checkpoint.
-
-    The checkpoint contains:
-    - models: dict of model state_dicts (enc, u, a, nf, etc.)
-    - nf_config: NFConfig used to create the NF (optional, for reconstruction)
-
-    Returns:
-        model_dict: Dict of loaded models (excluding NF)
-        nf: Loaded RealNVP model
-    """
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-
-    print(f"Loading checkpoint: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    # Get model state dicts
-    if 'models' in checkpoint:
-        ckpt_models = checkpoint['models']
-    else:
-        ckpt_models = checkpoint
-
-    # Load NF - need to reconstruct from saved config or state dict
-    if 'nf' not in ckpt_models:
-        raise KeyError("Checkpoint does not contain 'nf' model")
-
-    # Try to get NF config from checkpoint, otherwise infer from state dict
-    nf_state = ckpt_models['nf']
-
-    if 'nf_config' in checkpoint:
-        # NF config was saved in checkpoint
-        from src.solver.config import NFConfig
-        nf_config = NFConfig(**checkpoint['nf_config'])
-    else:
-        # Infer config from state dict
-        # The first layer weight shape tells us the dim
-        first_key = [k for k in nf_state.keys() if 'st_net.net.0.weight' in k][0]
-        dim = nf_state[first_key].shape[1] * 2  # cond_dim is dim//2
-
-        # Count number of flows
-        num_flows = len([k for k in nf_state.keys() if '.st_net.net.0.weight' in k])
-
-        # Get hidden dim from first layer
-        hidden_dim = nf_state[first_key].shape[0]
-
-        # Count layers in st_net
-        layer_keys = [k for k in nf_state.keys() if 'flows.0.st_net.net' in k and 'weight' in k]
-        num_layers = len(layer_keys)
-
-        from src.solver.config import NFConfig
-        nf_config = NFConfig(
-            dim=dim,
-            num_flows=num_flows,
-            hidden_dim=hidden_dim,
-            num_layers=num_layers,
-        )
-        print(f"  Inferred NF config: dim={dim}, flows={num_flows}, hidden={hidden_dim}, layers={num_layers}")
-
-    # Create and load NF
-    from src.components.nf import RealNVP
-    nf = RealNVP(config=nf_config).to(device)
-    nf.load_state_dict(nf_state)
-    nf.eval()
-    print(f"  Loaded: nf")
-
-    # Load other models into problem.model_dict
-    # We need to create the model architectures first
-    # This is problem-specific, so we expect the problem to handle it
-
-    # For now, we'll use a generic approach: save/load entire models
-    # The checkpoint should contain the full model objects or we need the architecture
-
-    # IMPORTANT: The problem must define how to create model architectures
-    # For evaluation, we load state dicts into existing model structures
-
-    loaded_models = {}
-    for name, state_dict in ckpt_models.items():
-        if name != 'nf':
-            # Check if model exists in problem.model_dict
-            if name in problem.model_dict:
-                problem.model_dict[name].load_state_dict(state_dict)
-                problem.model_dict[name].to(device)
-                problem.model_dict[name].eval()
-                loaded_models[name] = problem.model_dict[name]
-                print(f"  Loaded: {name}")
-            else:
-                print(f"  Warning: {name} in checkpoint but not in problem.model_dict")
-
-    return loaded_models, nf
-
-
-def load_pretrained_full(checkpoint_path: Path, device):
-    """
-    Load all models directly from checkpoint (models saved as full objects).
-
-    This is an alternative approach where the checkpoint contains
-    the full model objects, not just state_dicts.
-
-    Returns:
-        model_dict: Dict of loaded models
-        nf: Loaded RealNVP model
-    """
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
-
-    print(f"Loading checkpoint: {checkpoint_path}")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-
-    ckpt_models = checkpoint.get('models', checkpoint)
-
-    # Separate NF from other models
-    nf = None
-    model_dict = {}
-
-    for name, model_or_state in ckpt_models.items():
-        if isinstance(model_or_state, nn.Module):
-            # Full model was saved
-            model_or_state.to(device)
-            model_or_state.eval()
-            if name == 'nf':
-                nf = model_or_state
-            else:
-                model_dict[name] = model_or_state
-            print(f"  Loaded (full model): {name}")
-        elif isinstance(model_or_state, dict):
-            # State dict was saved - need to reconstruct
-            if name == 'nf':
-                # Reconstruct NF
-                nf_state = model_or_state
-
-                # Infer config from state dict
-                flow_keys = [k for k in nf_state.keys() if 'st_net.net.0.weight' in k]
-                if flow_keys:
-                    first_key = flow_keys[0]
-                    dim = nf_state[first_key].shape[1] * 2
-                    num_flows = len([k for k in nf_state.keys() if '.st_net.scale_layer.weight' in k])
-                    hidden_dim = nf_state[first_key].shape[0]
-
-                    from src.solver.config import NFConfig
-                    from src.components.nf import RealNVP
-
-                    # Count layers
-                    layer_keys = [k for k in nf_state.keys() if 'flows.0.st_net.net' in k and 'weight' in k]
-                    num_layers = len(layer_keys)
-
-                    nf_config = NFConfig(dim=dim, num_flows=num_flows, hidden_dim=hidden_dim, num_layers=num_layers)
-                    nf = RealNVP(config=nf_config).to(device)
-                    nf.load_state_dict(nf_state)
-                    nf.eval()
-                    print(f"  Loaded (state dict): nf - dim={dim}, flows={num_flows}")
-
-    return model_dict, nf
 
 
 def save_results(results: dict, config: TrainingConfig, output_dir: Path):
@@ -241,15 +83,19 @@ def evaluate(config: TrainingConfig, verbose: bool = True):
     if ckpt_path is None:
         raise ValueError("pretrained.path must be set in config for evaluation")
 
-    # Create problem (loads test data only)
+    # Create problem (loads test data only, builds model architectures)
     print(f"Creating problem: {config.problem.type}")
     problem = create_problem(config, load_train_data=False)
 
     # Load all models from checkpoint
-    model_dict, nf = load_pretrained_full(ckpt_path, device)
+    print(f"\nLoading checkpoint: {ckpt_path}")
+    problem.load_checkpoint(ckpt_path)
 
-    # Set models in problem
-    problem.set_models(model_dict)
+    # Set all models to eval mode
+    problem.eval_mode()
+
+    # Get NF for inverter
+    nf = problem.model_dict['nf']
 
     # Create inverter
     if eval_cfg.method == 'igno':
@@ -403,3 +249,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

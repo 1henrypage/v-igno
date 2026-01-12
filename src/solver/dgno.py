@@ -1,5 +1,8 @@
 """
 Foundation Trainer: Combined DGNO (encoder-decoder) + NF training.
+
+This trainer orchestrates training but does NOT own models.
+All models are owned by the ProblemInstance.
 """
 import torch
 import time
@@ -8,117 +11,175 @@ from tqdm import trange
 from datetime import datetime
 from pathlib import Path
 
-from src.solver.base import BaseTrainer
+from torch.utils.tensorboard import SummaryWriter
+
 from src.solver.config import TrainingConfig
 from src.problems import ProblemInstance
 from src.utils.solver_utils import get_optimizer, get_scheduler, data_loader, var_data_loader
-from src.components.nf import RealNVP
 
 
-class FoundationTrainer(BaseTrainer):
-    """Trains encoder-decoder (DGNO) + normalizing flow (NF)."""
+class FoundationTrainer:
+    """
+    Trains encoder-decoder (DGNO) + normalizing flow (NF).
+
+    Models are owned by the ProblemInstance - this class just orchestrates training.
+    """
 
     STAGE_NAME = "foundation"
 
     def __init__(self, problem: ProblemInstance):
-        super().__init__(device=problem.device, dtype=problem.dtype)
         self.problem = problem
-        self.nf = None
-        self.nf_config = None  # Store for saving in checkpoint
+        self.device = problem.device
+        self.dtype = problem.dtype
+
+        # Training state (ephemeral)
+        self.optimizer: Optional[torch.optim.Optimizer] = None
+        self.scheduler = None
+        self.writer: Optional[SummaryWriter] = None
+
+        # Directories
+        self.run_dir: Optional[Path] = None
+        self.stage_dir: Optional[Path] = None
+        self.weights_dir: Optional[Path] = None
+        self.tb_dir: Optional[Path] = None
 
     def _create_run_dir(self, config: TrainingConfig) -> Path:
+        """Create timestamped run directory."""
         timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
         run_dir = Path(config.artifact_root) / f"{timestamp}_{config.run_name}"
         run_dir.mkdir(parents=True, exist_ok=True)
         return run_dir
 
+    def _setup_directories(self) -> None:
+        """Setup stage directories."""
+        if self.run_dir is None:
+            raise RuntimeError("run_dir must be set before calling _setup_directories")
+
+        self.stage_dir = self.run_dir / self.STAGE_NAME
+        self.weights_dir = self.stage_dir / "weights"
+        self.tb_dir = self.stage_dir / "tensorboard"
+
+        self.weights_dir.mkdir(parents=True, exist_ok=True)
+        self.tb_dir.mkdir(parents=True, exist_ok=True)
+
+    def _setup_tensorboard(self) -> None:
+        """Initialize TensorBoard writer."""
+        self.writer = SummaryWriter(log_dir=str(self.tb_dir))
+
+    def _log(self, tag: str, value: float, step: int) -> None:
+        """Log to TensorBoard."""
+        if self.writer:
+            self.writer.add_scalar(tag, value, step)
+
     def setup(self, config: TrainingConfig, pretrained_path: Optional[Path] = None) -> None:
+        """
+        Setup trainer: create directories, load pretrained if specified.
+
+        Args:
+            config: Training configuration
+            pretrained_path: Optional path to pretrained checkpoint
+        """
         self.problem.pre_train_check()
+
+        # Create run directory
         self.run_dir = self._create_run_dir(config)
         self.problem.run_dir = self.run_dir
 
-        self.setup_directories(self.STAGE_NAME)
-        self.setup_tensorboard()
+        # Setup directories and tensorboard
+        self._setup_directories()
+        self._setup_tensorboard()
 
-        problem_models = self.problem.get_model_dict()
-
-        # Store NF config for checkpoint
-        self.nf_config = config.nf.nf
-        self.nf = RealNVP(config=self.nf_config).to(self.device)
-
-        self.model_dict = {**problem_models, 'nf': self.nf}
-        for m in self.model_dict.values():
-            m.to(self.device)
-
+        # Load pretrained if specified
         ckpt_path = pretrained_path or config.get_pretrained_path()
         if ckpt_path and ckpt_path.exists():
             print(f"Loading pretrained: {ckpt_path}")
-            self.load_models_from_checkpoint(self.load_checkpoint(ckpt_path, self.device), strict=False)
+            self.problem.load_checkpoint(ckpt_path, strict=False)
 
+        # Save config
         config.save(self.run_dir / "config.yaml")
         print(f"Run directory: {self.run_dir}")
 
-    def save_checkpoint(self, filename: str, epoch: int, metric: Optional[float] = None,
-                        metric_name: Optional[str] = None, extra: Optional[Dict] = None) -> Path:
-        """Override to include NF config."""
-        state = {
-            'models': {name: m.state_dict() for name, m in self.model_dict.items()},
-            'epoch': epoch,
-            'timestamp': datetime.now().isoformat(),
-            'nf_config': self.nf_config.to_dict() if self.nf_config else None,
-        }
-        if metric is not None:
-            state['metric'] = metric
-            state['metric_name'] = metric_name
-        if self.optimizer:
-            state['optimizer'] = self.optimizer.state_dict()
-        if self.scheduler:
-            state['scheduler'] = self.scheduler.state_dict()
-        if extra:
-            state.update(extra)
-        path = self.weights_dir / filename
-        torch.save(state, path)
-        return path
-
     def train(self, config: TrainingConfig, skip_dgno: bool = False, skip_nf: bool = False) -> Dict[str, Any]:
-        """Train using data from problem instance."""
+        """
+        Train DGNO and NF phases.
+
+        Args:
+            config: Training configuration
+            skip_dgno: Skip DGNO training phase
+            skip_nf: Skip NF training phase
+
+        Returns:
+            Results dict with metrics from each phase
+        """
         train_data = self.problem.get_train_data()
         test_data = self.problem.get_test_data()
 
         results = {}
 
         if not skip_dgno:
-            print("\n" + "="*60 + "\nPHASE 1: DGNO Training\n" + "="*60)
+            print("\n" + "=" * 60 + "\nPHASE 1: DGNO Training\n" + "=" * 60)
             results['dgno'] = self._train_dgno(train_data, test_data, config)
 
         if not skip_nf:
-            print("\n" + "="*60 + "\nPHASE 2: NF Training\n" + "="*60)
+            # IMPORTANT: Reload best DGNO checkpoint before NF training
+            best_dgno_path = self.weights_dir / 'best_dgno.pt'
+            if best_dgno_path.exists():
+                print(f"\nReloading best DGNO from: {best_dgno_path}")
+                self.problem.load_checkpoint(
+                    best_dgno_path,
+                    models_to_load=['enc', 'u', 'a']  # Don't load NF
+                )
+
+            print("\n" + "=" * 60 + "\nPHASE 2: NF Training\n" + "=" * 60)
             results['nf'] = self._train_nf(train_data, test_data, config)
 
         print(f"\nCheckpoints saved to: {self.weights_dir}")
         return results
 
-    def _train_dgno(self, train_data, test_data, config) -> Dict[str, Any]:
+    def _train_dgno(self, train_data: Dict, test_data: Dict, config: TrainingConfig) -> Dict[str, Any]:
+        """
+        Train DGNO (encoder + decoders).
+
+        NF is frozen during this phase.
+        """
         cfg = config.dgno
 
-        dgno_params = [p for n, m in self.model_dict.items() if n != 'nf' for p in m.parameters()]
+        # Freeze NF, unfreeze DGNO models
+        self.problem.freeze(['nf'])
+        self.problem.unfreeze(['enc', 'u', 'a'])
+
+        # Setup optimizer for DGNO models only
+        dgno_params = []
+        for name in ['enc', 'u', 'a']:
+            dgno_params.extend(list(self.problem.model_dict[name].parameters()))
+
         self.optimizer = get_optimizer(cfg.optimizer, dgno_params)
         self.scheduler = get_scheduler(cfg.scheduler, self.optimizer)
 
-        train_loader = data_loader(train_data['a'], train_data['u'], train_data['x'], cfg.batch_size, shuffle=True)
-        test_loader = data_loader(test_data['a'], test_data['u'], test_data['x'], cfg.batch_size, shuffle=False)
+        # Data loaders
+        train_loader = data_loader(
+            train_data['a'], train_data['u'], train_data['x'],
+            cfg.batch_size, shuffle=True
+        )
+        test_loader = data_loader(
+            test_data['a'], test_data['u'], test_data['x'],
+            cfg.batch_size, shuffle=False
+        )
 
         t_start = time.time()
         best_error = float('inf')
         weights = cfg.loss_weights
 
         for epoch in trange(cfg.epochs, desc="DGNO"):
-            self.train_mode()
-            self.model_dict['nf'].eval()
+            # Train mode for DGNO, eval for NF
+            self.problem.train_mode(['enc', 'u', 'a'])
+            self.problem.eval_mode(['nf'])
 
             loss_sum, pde_sum, data_sum = 0., 0., 0.
+
             for a, u, x in train_loader:
                 a, u, x = a.to(self.device), u.to(self.device), x.to(self.device)
+
                 loss_pde = self.problem.loss_pde(a)
                 loss_data = self.problem.loss_data(x, a, u)
                 loss = loss_pde * weights.pde + loss_data * weights.data
@@ -131,8 +192,10 @@ class FoundationTrainer(BaseTrainer):
                 pde_sum += loss_pde.item()
                 data_sum += loss_data.item()
 
-            self.eval_mode()
+            # Evaluation
+            self.problem.eval_mode()
             error_sum = 0.
+
             with torch.no_grad():
                 for a, u, x in test_loader:
                     a, u, x = a.to(self.device), u.to(self.device), x.to(self.device)
@@ -142,87 +205,153 @@ class FoundationTrainer(BaseTrainer):
             avg_loss = loss_sum / n_train
             avg_error = error_sum / n_test
 
-            self.log("dgno/loss", avg_loss, epoch)
-            self.log("dgno/pde", pde_sum / n_train, epoch)
-            self.log("dgno/data", data_sum / n_train, epoch)
-            self.log("dgno/error", avg_error, epoch)
+            # Logging
+            self._log("dgno/loss", avg_loss, epoch)
+            self._log("dgno/pde", pde_sum / n_train, epoch)
+            self._log("dgno/data", data_sum / n_train, epoch)
+            self._log("dgno/error", avg_error, epoch)
 
+            # Save best
             if avg_error < best_error:
                 best_error = avg_error
-                self.save_checkpoint('best_dgno.pt', epoch, avg_error, 'error')
+                self.problem.save_checkpoint(
+                    self.weights_dir / 'best_dgno.pt',
+                    epoch=epoch,
+                    optimizer=self.optimizer,
+                    scheduler=self.scheduler,
+                    metric=avg_error,
+                    metric_name='error'
+                )
 
+            # Scheduler step
             if self.scheduler:
-                self.scheduler.step(avg_error) if cfg.scheduler.type == 'Plateau' else self.scheduler.step()
+                if cfg.scheduler.type == 'Plateau':
+                    self.scheduler.step(avg_error)
+                else:
+                    self.scheduler.step()
 
+            # Print progress
             if (epoch + 1) % cfg.epoch_show == 0:
-                print(f"\nEpoch {epoch+1}: Loss={avg_loss:.4f}, Error={avg_error:.4f}")
+                print(f"\nEpoch {epoch + 1}: Loss={avg_loss:.4f}, Error={avg_error:.4f}")
 
-        self.save_checkpoint('last_dgno.pt', cfg.epochs - 1)
+        # Save last checkpoint
+        self.problem.save_checkpoint(
+            self.weights_dir / 'last_dgno.pt',
+            epoch=cfg.epochs - 1,
+            optimizer=self.optimizer,
+            scheduler=self.scheduler
+        )
+
         return {'best_error': best_error, 'time': time.time() - t_start}
 
-    def _train_nf(self, train_data, test_data, config) -> Dict[str, Any]:
+    def _train_nf(self, train_data: Dict, test_data: Dict, config: TrainingConfig) -> Dict[str, Any]:
+        """
+        Train Normalizing Flow on latent representations.
+
+        DGNO models are frozen during this phase.
+        """
         cfg = config.nf
 
-        for n, m in self.model_dict.items():
-            if n != 'nf':
-                m.eval()
-                for p in m.parameters():
-                    p.requires_grad = False
+        # Freeze DGNO, unfreeze NF
+        self.problem.freeze(['enc', 'u', 'a'])
+        self.problem.unfreeze(['nf'])
 
-        self.optimizer = get_optimizer(cfg.optimizer, list(self.nf.parameters()))
+        # Setup optimizer for NF only
+        nf = self.problem.model_dict['nf']
+        self.optimizer = get_optimizer(cfg.optimizer, list(nf.parameters()))
         self.scheduler = get_scheduler(cfg.scheduler, self.optimizer)
 
+        # Extract latents from frozen encoder
         print("Extracting latents...")
         latents_train = self._extract_latents(train_data['a'], cfg.batch_size)
         latents_test = self._extract_latents(test_data['a'], cfg.batch_size)
 
-        train_loader = var_data_loader(latents_train, cfg.batch_size, shuffle=True)
-        test_loader = var_data_loader(latents_test, cfg.batch_size, shuffle=False)
+        train_loader = var_data_loader(latents_train, batch_size=cfg.batch_size, shuffle=True)
+        test_loader = var_data_loader(latents_test, batch_size=cfg.batch_size, shuffle=False)
 
         t_start = time.time()
         best_nll = float('inf')
 
         for epoch in trange(cfg.epochs, desc="NF"):
-            self.nf.train()
+            # Train NF only
+            self.problem.eval_mode(['enc', 'u', 'a'])
+            self.problem.train_mode(['nf'])
+
             train_nll = 0.
             for (z,) in train_loader:
                 z = z.to(self.device)
-                loss = self.nf.loss(z)
+                loss = nf.loss(z)
+
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+
                 train_nll += loss.item()
 
-            self.nf.eval()
+            # Evaluation
+            self.problem.eval_mode()
             test_nll = 0.
+
             with torch.no_grad():
                 for (z,) in test_loader:
-                    test_nll += self.nf.loss(z.to(self.device)).item()
+                    test_nll += nf.loss(z.to(self.device)).item()
 
             avg_train = train_nll / len(train_loader)
             avg_test = test_nll / len(test_loader)
 
-            self.log("nf/train_nll", avg_train, epoch)
-            self.log("nf/test_nll", avg_test, epoch)
+            # Logging
+            self._log("nf/train_nll", avg_train, epoch)
+            self._log("nf/test_nll", avg_test, epoch)
 
+            # Save best
             if avg_test < best_nll:
                 best_nll = avg_test
-                self.save_checkpoint('best.pt', epoch, avg_test, 'nll')
+                self.problem.save_checkpoint(
+                    self.weights_dir / 'best.pt',
+                    epoch=epoch,
+                    optimizer=self.optimizer,
+                    scheduler=self.scheduler,
+                    metric=avg_test,
+                    metric_name='nll'
+                )
 
+            # Scheduler step
             if self.scheduler:
-                self.scheduler.step(avg_test) if cfg.scheduler.type == 'Plateau' else self.scheduler.step()
+                if cfg.scheduler.type == 'Plateau':
+                    self.scheduler.step(avg_test)
+                else:
+                    self.scheduler.step()
 
+            # Print progress
             if (epoch + 1) % cfg.epoch_show == 0:
-                print(f"\nEpoch {epoch+1}: Train NLL={avg_train:.4f}, Test NLL={avg_test:.4f}")
+                print(f"\nEpoch {epoch + 1}: Train NLL={avg_train:.4f}, Test NLL={avg_test:.4f}")
 
-        self.save_checkpoint('last.pt', cfg.epochs - 1)
+        # Save last checkpoint
+        self.problem.save_checkpoint(
+            self.weights_dir / 'last.pt',
+            epoch=cfg.epochs - 1,
+            optimizer=self.optimizer,
+            scheduler=self.scheduler
+        )
+
         return {'best_nll': best_nll, 'time': time.time() - t_start}
 
     def _extract_latents(self, a: torch.Tensor, batch_size: int) -> torch.Tensor:
-        enc = self.model_dict['enc']
+        """Extract latent representations using frozen encoder."""
+        enc = self.problem.model_dict['enc']
         enc.eval()
+
         latents = []
         with torch.no_grad():
             for i in range(0, len(a), batch_size):
-                latents.append(enc(a[i:i+batch_size].to(self.device)).cpu())
+                batch = a[i:i + batch_size].to(self.device)
+                latents.append(enc(batch).cpu())
+
         return torch.cat(latents, dim=0)
+
+    def close(self) -> None:
+        """Cleanup resources."""
+        if self.writer:
+            self.writer.close()
+            self.writer = None
+

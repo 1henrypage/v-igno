@@ -8,6 +8,8 @@ Original loss structure preserved:
 Additional _from_beta methods for inversion/encoder:
 - loss_pde_from_beta(beta): PDE loss directly from beta
 - loss_data_from_beta(beta, x, target, target_type): data loss directly from beta
+
+All models (enc, u, a, nf) are built in _build_models().
 """
 
 import torch
@@ -18,6 +20,7 @@ from typing import Dict
 from pathlib import Path
 
 from src.components.encoder import EncoderCNNet2dTanh
+from src.components.nf import RealNVP
 from src.problems import ProblemInstance, register_problem
 from src.utils.GenPoints import Point2D
 from src.utils.TestFun_ParticleWNN import TestFun_ParticleWNN
@@ -25,6 +28,7 @@ from src.utils.misc_utils import np2tensor
 from src.utils.RBFInterpolatorMesh import RBFInterpolator
 from src.utils.solver_utils import get_model
 from src.utils.npy_loader import NpyFile
+
 
 class TorchMollifier:
     def __call__(self, u, x):
@@ -40,6 +44,13 @@ class DarcyFlowContinuous(ProblemInstance):
 
     PDE: -div(a * grad(u)) = f
     """
+
+    # Hardcoded model hyperparameters (consistent across experiments)
+    BETA_SIZE = 128
+    HIDDEN_SIZE = 100
+    NF_NUM_FLOWS = 3
+    NF_HIDDEN_DIM = 64
+    NF_NUM_LAYERS = 2
 
     def __init__(self, device=None, dtype=torch.float32, seed: int = 10086,
                  train_data_path: str = None, test_data_path: str = None):
@@ -77,8 +88,8 @@ class DarcyFlowContinuous(ProblemInstance):
         print("Setting up grids and test functions...")
 
         self.genPoint = Point2D(
-            x_lb=[0.,0.],
-            x_ub=[1.,1.],
+            x_lb=[0., 0.],
+            x_ub=[1., 1.],
             dataType=self.dtype
         )
 
@@ -94,25 +105,20 @@ class DarcyFlowContinuous(ProblemInstance):
         self.dv_dr = dv_dr.to(self.device)
         self.n_grid = int_grid.shape[0]
 
-
         print(f"  int_grid: {self.int_grid.shape}, v: {self.v.shape}")
 
         self.mollifier = TorchMollifier()
 
         # =====================================================================
-        # 3. BUILD MODELS (only for training, not evaluation)
+        # 3. BUILD MODELS (all models including NF)
         # =====================================================================
-        # For evaluation, models are set via set_models() after loading checkpoint
-        if self.train_data_path:
-            print("Building models...")
-            self.model_dict = self._build_models()
+        print("Building models...")
+        self.model_dict = self._build_models()
 
-            for name, model in self.model_dict.items():
-                model.to(self.device)
-                n_params = sum(p.numel() for p in model.parameters())
-                print(f"  {name}: {n_params:,} parameters")
-        else:
-            print("The ProblemInstance __init__ method will not initialise the models as the framework has been launched in evaluation mode.")
+        for name, model in self.model_dict.items():
+            model.to(self.device)
+            n_params = sum(p.numel() for p in model.parameters())
+            print(f"  {name}: {n_params:,} parameters")
 
         print("Problem initialized.")
 
@@ -139,13 +145,17 @@ class DarcyFlowContinuous(ProblemInstance):
         return {'a': a, 'u': u, 'x': x}, gridx
 
     def _build_models(self) -> Dict[str, nn.Module]:
-        net_type = 'MultiONetBatch'
-        beta_size = 128
-        hidden_size = 100
+        """
+        Build ALL models for Darcy flow problem.
 
-        ############ Encoder Architecture ########
+        Returns:
+            Dict with 'enc', 'u', 'a', 'nf'
+        """
+        net_type = 'MultiONetBatch'
+
+        # ============== Encoder Architecture ==============
         conv_arch = [1, 64, 64, 64]
-        fc_arch = [64 * 2 * 2, 128, 128, beta_size]
+        fc_arch = [64 * 2 * 2, 128, 128, self.BETA_SIZE]
         model_enc = EncoderCNNet2dTanh(
             conv_arch=conv_arch,
             fc_arch=fc_arch,
@@ -158,12 +168,13 @@ class DarcyFlowContinuous(ProblemInstance):
             dtype=self.dtype
         )
 
-        ############ Decoder Architecture
-        trunk_layers, branch_layers = [hidden_size] * 6, [hidden_size] * 6
-        #
+        # ============== Decoder Architecture ==============
+        trunk_layers = [self.HIDDEN_SIZE] * 6
+        branch_layers = [self.HIDDEN_SIZE] * 6
+
         model_a = get_model(
             x_in_size=2,
-            beta_in_size=beta_size,
+            beta_in_size=self.BETA_SIZE,
             trunk_layers=trunk_layers,
             branch_layers=branch_layers,
             activation_trunk='Tanh_Sin',
@@ -174,7 +185,7 @@ class DarcyFlowContinuous(ProblemInstance):
 
         model_u = get_model(
             x_in_size=2,
-            beta_in_size=beta_size,
+            beta_in_size=self.BETA_SIZE,
             trunk_layers=trunk_layers,
             branch_layers=branch_layers,
             activation_trunk='Tanh_Sin',
@@ -183,10 +194,19 @@ class DarcyFlowContinuous(ProblemInstance):
             sum_layers=5
         )
 
+        # ============== Normalizing Flow ==============
+        model_nf = RealNVP(
+            dim=self.BETA_SIZE,
+            num_flows=self.NF_NUM_FLOWS,
+            hidden_dim=self.NF_HIDDEN_DIM,
+            num_layers=self.NF_NUM_LAYERS,
+        )
+
         return {
             'enc': model_enc,
             'u': model_u,
-            'a': model_a
+            'a': model_a,
+            'nf': model_nf,
         }
 
     # =========================================================================
@@ -199,7 +219,7 @@ class DarcyFlowContinuous(ProblemInstance):
         n_batch = a.shape[0]
         beta = self.model_dict['enc'](a)
 
-        ##### Data points
+        # Data points
         # xc:size(nc,1,2) R:size(nc,1,1)
         xc, R = self.genPoint.weight_centers(n_center=nc, R_max=1e-4, R_min=1e-4)
         xc, R = xc.to(self.device), R.to(self.device)
@@ -270,7 +290,6 @@ class DarcyFlowContinuous(ProblemInstance):
             target_type='u',
         )
 
-
     # =========================================================================
     # FROM_BETA METHODS (for inversion/encoder - skip encoding step)
     # =========================================================================
@@ -289,9 +308,9 @@ class DarcyFlowContinuous(ProblemInstance):
         """
         nc = 100
         n_batch = beta.shape[0]
-        assert n_batch == 1 # sanity check for inversion
+        assert n_batch == 1  # sanity check for inversion
 
-        ############### Data points ###############
+        # Data points
         # xc:size(nc, 1, 2) R:size(nc, 1, 1)
         xc, R = self.genPoint.weight_centers(n_center=nc, R_max=1e-4, R_min=1e-4)
         xc, R = xc.to(self.device), R.to(self.device)
@@ -300,10 +319,12 @@ class DarcyFlowContinuous(ProblemInstance):
         # size(nc*n_grid, 2) -> (n_batch, nc*n_grid, 2)
         x = x.reshape(-1, 2).repeat((n_batch, 1, 1))
         x = Variable(x, requires_grad=True)
-        ############### Test functions #############
+
+        # Test functions
         v = self.v.repeat((nc, 1, 1)).reshape(-1, 1)
         dv = (self.dv_dr / R).reshape(-1, 2)
-        ################ model prediction ###########
+
+        # Model prediction
         a_detach = self.model_dict['a'](x.detach(), beta)
         a_detach = a_detach.unsqueeze(-1)
         # u: size(n_batch, nc*n_grid, 1)
@@ -312,18 +333,18 @@ class DarcyFlowContinuous(ProblemInstance):
         # du: size(n_batch, nc*n_grid, 2)
         du = grad(inputs=x, outputs=u, grad_outputs=torch.ones_like(u), create_graph=True)[0]
         f = 10. * torch.ones_like(u)
-        ################ PDE loss ####################
+
+        # PDE loss
         # size(n_batch, nc*n_grid, 2) -> (n_batch, nc, n_grid) -> (n_batch, nc)
         left = torch.sum(a_detach * (du * dv), dim=-1).reshape(n_batch, nc, self.n_grid)
         left = torch.mean(left, dim=-1)
         # size(n_batch, nc*n_grid, 1) -> (n_batch, nc, n_grid) -> (n_batch, nc)
         right = (f * v).reshape(n_batch, nc, self.n_grid)
         right = torch.mean(right, dim=-1)
-        #
+
         loss_pde = torch.norm(left - right, 2, 1)
 
         return torch.mean(loss_pde)
-
 
     def loss_data_from_beta(self, beta: torch.Tensor, x: torch.Tensor,
                             target: torch.Tensor, target_type: str = 'a') -> torch.Tensor:
@@ -368,7 +389,6 @@ class DarcyFlowContinuous(ProblemInstance):
             pred = self.model_dict['u'](x, beta)
             pred = self.mollifier(pred, x)
         elif target_type == 'a':
-            # This might break some stupid shit
             pred = self.model_dict['a'](x, beta)
             if target.dim() == 3 and target.shape[-1] == 1:
                 target = target.squeeze(-1)
@@ -452,3 +472,4 @@ class DarcyFlowContinuous(ProblemInstance):
     def get_n_points(self) -> int:
         """Get number of grid points per sample."""
         return self.test_data['x'].shape[1]
+

@@ -4,8 +4,9 @@ Problem instances module.
 Each problem is fully self-contained:
 - Loads its own data (paths from config)
 - Initializes grids, test functions
-- Builds models (for training) OR receives models (for evaluation)
+- Builds ALL models including NF (via _build_models)
 - Defines losses
+- Handles checkpoint save/load
 
 Loss structure:
 - loss_pde(a): Original method - encodes a -> beta, then computes PDE loss
@@ -16,11 +17,12 @@ For inversion/encoder (optional):
 - loss_data_from_beta(beta, x, target, target_type): Data loss directly from beta
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Type, Callable, Literal
+from typing import Dict, Optional, Type, Callable, Literal, List, Any
+from datetime import datetime
+from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
-from pathlib import Path
 
 from src.utils.Losses import MyError, MyLoss
 from src.utils.misc_utils import get_default_device, setup_seed
@@ -51,6 +53,9 @@ class ProblemInstance(ABC):
     """
     Abstract base class for PDE problems.
 
+    All models (encoder, decoders, NF) are built via _build_models().
+    This class is the single source of truth for model ownership.
+
     Loss methods follow original structure:
     - loss_pde(a): encode a -> beta, compute PDE loss
     - loss_data(x, a, u): encode a -> beta, compute data loss
@@ -58,8 +63,6 @@ class ProblemInstance(ABC):
     For inversion/encoder, subclasses should implement:
     - loss_pde_from_beta(beta): PDE loss from beta directly
     - loss_data_from_beta(beta, x, target, target_type): data loss from beta directly
-
-    For evaluation, model_dict can be populated externally via set_models().
     """
 
     def __init__(
@@ -81,7 +84,7 @@ class ProblemInstance(ABC):
         self.train_data_path = train_data_path
         self.test_data_path = test_data_path
 
-        # Will be set by subclass or externally for evaluation
+        # Model dict - populated by _build_models() or load_checkpoint()
         self.model_dict: Dict[str, nn.Module] = {}
         self.train_data: Dict[str, torch.Tensor] = {}
         self.test_data: Dict[str, torch.Tensor] = {}
@@ -92,6 +95,20 @@ class ProblemInstance(ABC):
         self.init_error()
         self.init_loss()
 
+    # =========================================================================
+    # Model building (abstract - must be implemented by subclass)
+    # =========================================================================
+
+    @abstractmethod
+    def _build_models(self) -> Dict[str, nn.Module]:
+        """
+        Build ALL models for this problem, including NF.
+
+        Returns:
+            Dict with keys like 'enc', 'u', 'a', 'nf'
+        """
+        raise NotImplementedError("Subclass must implement _build_models()")
+
     def set_models(self, model_dict: Dict[str, nn.Module]) -> None:
         """
         Set model dictionary externally (for evaluation).
@@ -101,6 +118,156 @@ class ProblemInstance(ABC):
         self.model_dict = model_dict
         for m in self.model_dict.values():
             m.to(self.device)
+
+    def get_model_dict(self) -> Dict[str, nn.Module]:
+        return self.model_dict
+
+    # =========================================================================
+    # Checkpoint management
+    # =========================================================================
+
+    def save_checkpoint(
+        self,
+        path: Path,
+        epoch: int,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+        scheduler: Optional[Any] = None,
+        metric: Optional[float] = None,
+        metric_name: Optional[str] = None,
+        extra: Optional[Dict] = None,
+    ) -> Path:
+        """
+        Save checkpoint with all models.
+
+        Args:
+            path: Path to save checkpoint
+            epoch: Current epoch
+            optimizer: Optional optimizer to save
+            scheduler: Optional scheduler to save
+            metric: Optional metric value
+            metric_name: Optional metric name
+            extra: Optional extra data to save
+
+        Returns:
+            Path where checkpoint was saved
+        """
+        state = {
+            'models': {name: m.state_dict() for name, m in self.model_dict.items()},
+            'epoch': epoch,
+            'timestamp': datetime.now().isoformat(),
+        }
+
+        if metric is not None:
+            state['metric'] = metric
+            state['metric_name'] = metric_name
+
+        if optimizer is not None:
+            state['optimizer'] = optimizer.state_dict()
+
+        if scheduler is not None:
+            state['scheduler'] = scheduler.state_dict()
+
+        if extra is not None:
+            state.update(extra)
+
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(state, path)
+        return path
+
+    def load_checkpoint(
+        self,
+        path: Path,
+        models_to_load: Optional[List[str]] = None,
+        strict: bool = True,
+        load_optimizer: bool = False,
+        optimizer: Optional[torch.optim.Optimizer] = None,
+        load_scheduler: bool = False,
+        scheduler: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """
+        Load checkpoint into model_dict.
+
+        Args:
+            path: Path to checkpoint
+            models_to_load: List of model names to load (None = all)
+            strict: Whether to strictly enforce state dict matching
+            load_optimizer: Whether to load optimizer state
+            optimizer: Optimizer to load state into
+            load_scheduler: Whether to load scheduler state
+            scheduler: Scheduler to load state into
+
+        Returns:
+            Checkpoint dict (for accessing epoch, metrics, etc.)
+        """
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"Checkpoint not found: {path}")
+
+        print(f"Loading checkpoint: {path}")
+        checkpoint = torch.load(path, map_location=self.device)
+
+        # Get model state dicts
+        ckpt_models = checkpoint.get('models', checkpoint)
+
+        # Determine which models to load
+        to_load = models_to_load if models_to_load else list(self.model_dict.keys())
+
+        for name in to_load:
+            if name in self.model_dict and name in ckpt_models:
+                self.model_dict[name].load_state_dict(ckpt_models[name], strict=strict)
+                self.model_dict[name].to(self.device)
+                print(f"  Loaded: {name}")
+            elif name in ckpt_models and name not in self.model_dict:
+                print(f"  Warning: {name} in checkpoint but not in model_dict (skipped)")
+            elif name not in ckpt_models:
+                print(f"  Warning: {name} not in checkpoint")
+
+        # Load optimizer if requested
+        if load_optimizer and optimizer is not None and 'optimizer' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            print("  Loaded: optimizer")
+
+        # Load scheduler if requested
+        if load_scheduler and scheduler is not None and 'scheduler' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler'])
+            print("  Loaded: scheduler")
+
+        return checkpoint
+
+    # =========================================================================
+    # Mode switching utilities
+    # =========================================================================
+
+    def train_mode(self, model_names: Optional[List[str]] = None) -> None:
+        """Set specified models (or all) to train mode."""
+        names = model_names if model_names else list(self.model_dict.keys())
+        for name in names:
+            if name in self.model_dict:
+                self.model_dict[name].train()
+
+    def eval_mode(self, model_names: Optional[List[str]] = None) -> None:
+        """Set specified models (or all) to eval mode."""
+        names = model_names if model_names else list(self.model_dict.keys())
+        for name in names:
+            if name in self.model_dict:
+                self.model_dict[name].eval()
+
+    def freeze(self, model_names: List[str]) -> None:
+        """Freeze specified models (eval mode + no grad)."""
+        for name in model_names:
+            if name in self.model_dict:
+                self.model_dict[name].eval()
+                for p in self.model_dict[name].parameters():
+                    p.requires_grad = False
+
+    def unfreeze(self, model_names: List[str]) -> None:
+        """Unfreeze specified models (train mode + grad enabled)."""
+        for name in model_names:
+            if name in self.model_dict:
+                self.model_dict[name].train()
+                for p in self.model_dict[name].parameters():
+                    p.requires_grad = True
 
     # =========================================================================
     # Core loss methods (original structure - encode a first)
@@ -243,9 +410,6 @@ class ProblemInstance(ABC):
     # Standard utilities
     # =========================================================================
 
-    def get_model_dict(self) -> Dict[str, nn.Module]:
-        return self.model_dict
-
     def get_train_data(self) -> Dict[str, torch.Tensor]:
         return self.train_data
 
@@ -293,5 +457,7 @@ def create_problem(config, load_train_data: bool = True) -> ProblemInstance:
         test_data_path=config.problem.test_data,
     )
 
+
 # Auto-register problems
 from src.problems.darcy_continuous import DarcyFlowContinuous
+
