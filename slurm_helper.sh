@@ -5,15 +5,15 @@
 # This script provides convenient commands for managing SLURM jobs on DAIC
 #
 # Usage:
-#   ./slurm_helper.sh submit <config_file> [args]     # Submit single job
-#   ./slurm_helper.sh submit-array [config_list]      # Submit array job
-#   ./slurm_helper.sh status                          # Check job status
-#   ./slurm_helper.sh cancel <job_id>                 # Cancel a job
-#   ./slurm_helper.sh cancel-all                      # Cancel all your jobs
-#   ./slurm_helper.sh logs <job_id>                   # View job logs
-#   ./slurm_helper.sh interactive [gpu_type]          # Start interactive session
-#   ./slurm_helper.sh gpu-status                      # Check GPU availability
-#   ./slurm_helper.sh help                            # Show this help
+#   ./slurm_helper.sh submit <mode> <config_file> [args]  # Submit single job
+#   ./slurm_helper.sh submit-array [config_list]          # Submit array job
+#   ./slurm_helper.sh status                              # Check job status
+#   ./slurm_helper.sh cancel <job_id>                     # Cancel a job
+#   ./slurm_helper.sh cancel-all                          # Cancel all your jobs
+#   ./slurm_helper.sh logs <job_id>                       # View job logs
+#   ./slurm_helper.sh interactive [gpu_type]              # Start interactive session
+#   ./slurm_helper.sh gpu-status                          # Check GPU availability
+#   ./slurm_helper.sh help                                # Show this help
 # =============================================================================
 
 set -e  # Exit on error
@@ -52,6 +52,17 @@ print_info() {
 cmd_submit() {
     print_header "Submitting Single Job"
     
+    MODE="${1:-train}"
+    shift || true
+    
+    # Validate mode
+    if [[ "$MODE" != "train" && "$MODE" != "evaluate" ]]; then
+        print_error "Invalid mode: $MODE"
+        print_info "Mode must be either 'train' or 'evaluate'"
+        print_info "Usage: ./slurm_helper.sh submit <mode> <config_file> [args]"
+        exit 1
+    fi
+    
     CONFIG_FILE="${1:-configs/example_config.yaml}"
     shift || true
     
@@ -60,14 +71,15 @@ cmd_submit() {
         exit 1
     fi
     
+    print_info "Mode: $MODE"
     print_info "Config: $CONFIG_FILE"
     print_info "Additional args: $*"
     
     # Create logs directory
     mkdir -p slurm_logs
     
-    # Submit job
-    JOB_ID=$(sbatch slurm_job.sh "$CONFIG_FILE" "$@" | awk '{print $4}')
+    # Submit job with mode as first argument
+    JOB_ID=$(sbatch slurm_job.sh "$MODE" "$CONFIG_FILE" "$@" | awk '{print $4}')
     
     if [ -n "$JOB_ID" ]; then
         print_success "Job submitted with ID: $JOB_ID"
@@ -87,8 +99,8 @@ cmd_submit_array() {
     if [ ! -f "$CONFIG_LIST" ]; then
         print_error "Config list not found: $CONFIG_LIST"
         print_info "Create a file with one config per line:"
-        print_info "  configs/exp1.yaml --seed 42"
-        print_info "  configs/exp2.yaml --seed 123"
+        print_info "  train configs/exp1.yaml --seed 42"
+        print_info "  evaluate configs/exp2.yaml --seed 123"
         exit 1
     fi
     
@@ -224,35 +236,37 @@ USAGE:
   ./slurm_helper.sh <command> [options]
 
 COMMANDS:
-  submit <config> [args]      Submit a single training job
-                             Example: ./slurm_helper.sh submit configs/exp.yaml --seed 42
+  submit <mode> <config> [args]  Submit a single training or evaluation job
+                                 Mode: train or evaluate
+                                 Example: ./slurm_helper.sh submit train configs/exp.yaml --seed 42
+                                 Example: ./slurm_helper.sh submit evaluate configs/eval.yaml
 
-  submit-array [config_list]  Submit an array job for parallel experiments
-                             Example: ./slurm_helper.sh submit-array configs/array_configs.txt
+  submit-array [config_list]     Submit an array job for parallel experiments
+                                 Example: ./slurm_helper.sh submit-array configs/array_configs.txt
 
-  status                      Show status of all your jobs
+  status                         Show status of all your jobs
 
-  cancel <job_id>            Cancel a specific job
-                             Example: ./slurm_helper.sh cancel 12345
+  cancel <job_id>                Cancel a specific job
+                                 Example: ./slurm_helper.sh cancel 12345
 
-  cancel-all                  Cancel all your jobs (with confirmation)
+  cancel-all                     Cancel all your jobs (with confirmation)
 
-  logs <job_id>              View logs for a specific job
-                             Example: ./slurm_helper.sh logs 12345
+  logs <job_id>                  View logs for a specific job
+                                 Example: ./slurm_helper.sh logs 12345
 
-  interactive [gpu_type]      Start an interactive session with GPU
-                             Example: ./slurm_helper.sh interactive a40
+  interactive [gpu_type]         Start an interactive session with GPU
+                                 Example: ./slurm_helper.sh interactive a40
 
-  gpu-status                  Show GPU availability and specifications
+  gpu-status                     Show GPU availability and specifications
 
-  help                        Show this help message
+  help                           Show this help message
 
 COMMON SLURM COMMANDS:
-  squeue -u \$USER            List your jobs
-  squeue -j <job_id>         Show specific job details
-  scancel <job_id>           Cancel a job
-  seff <job_id>              Show resource usage (after job completes)
-  scontrol show job <job_id> Show detailed job information
+  squeue -u \$USER               List your jobs
+  squeue -j <job_id>             Show specific job details
+  scancel <job_id>               Cancel a job
+  seff <job_id>                  Show resource usage (after job completes)
+  scontrol show job <job_id>     Show detailed job information
 
 GPU TYPES ON DAIC:
   a40    - NVIDIA A40 (46 GB, most common, 84 available)

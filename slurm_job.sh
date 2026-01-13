@@ -11,20 +11,19 @@
 #SBATCH --error=slurm_logs/job_%j.err   # Set name of error log (%j = jobID)
 #SBATCH --mail-type=END,FAIL            # Send email on job end/failure
 #SBATCH --mail-user=h.page@student.tudelft.nl
-
 # =============================================================================
-# SLURM Job Script for DGNO Training on DAIC
+# SLURM Job Script for DGNO Training/Evaluation on DAIC
 # =============================================================================
-# This script sets up the environment and runs ML training using the DGNO
-# framework on TU Delft's AI Cluster (DAIC).
+# This script sets up the environment and runs ML training or evaluation using 
+# the DGNO framework on TU Delft's AI Cluster (DAIC).
 #
 # Usage:
-#   sbatch slurm_job.sh [CONFIG_FILE] [ADDITIONAL_ARGS]
+#   sbatch slurm_job.sh <MODE> <CONFIG_FILE> [ADDITIONAL_ARGS]
 #
 # Examples:
-#   sbatch slurm_job.sh
-#   sbatch slurm_job.sh configs/my_experiment.yaml
-#   sbatch slurm_job.sh configs/my_experiment.yaml --seed 42
+#   sbatch slurm_job.sh train configs/my_experiment.yaml
+#   sbatch slurm_job.sh train configs/my_experiment.yaml --seed 42
+#   sbatch slurm_job.sh evaluate configs/eval_config.yaml
 # =============================================================================
 
 # Print job information
@@ -40,22 +39,29 @@ echo "GPU Information:"
 nvidia-smi
 echo "=============================================="
 
-
 # =============================================================================
 # Navigate to project directory
 # =============================================================================
-
 # Use SLURM_SUBMIT_DIR instead of BASH_SOURCE
 cd "$SLURM_SUBMIT_DIR" || exit 1
-
 echo "Working directory: $(pwd)"
 echo "=============================================="
 
 # =============================================================================
-# Determine configuration file
+# Parse mode and configuration file
 # =============================================================================
+# Get mode (train or evaluate)
+MODE="${1:?mode required (train or evaluate)}"
+shift
 
-# Use provided config file or default
+# Validate mode
+if [[ "$MODE" != "train" && "$MODE" != "evaluate" ]]; then
+    echo "ERROR: Invalid mode: $MODE"
+    echo "Mode must be either 'train' or 'evaluate'"
+    exit 1
+fi
+
+# Get config file
 CONFIG_FILE="${1:?config file required}"
 shift
 
@@ -65,35 +71,41 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 
+echo "Mode: $MODE"
 echo "Using configuration: $CONFIG_FILE"
 echo "Additional arguments: $*"
 echo "=============================================="
 
 # =============================================================================
-# Run Training
+# Run Training or Evaluation
 # =============================================================================
+# Determine which script to run based on mode
+if [ "$MODE" == "train" ]; then
+    SCRIPT="training.py"
+    ACTION="Training"
+else
+    SCRIPT="evaluate.py"
+    ACTION="Evaluation"
+fi
 
-echo "Starting training..."
-echo "Command: uv run python training.py --config $CONFIG_FILE $*"
+echo "Starting ${ACTION}..."
+echo "Command: uv run python $SCRIPT --config $CONFIG_FILE $*"
 echo "=============================================="
 
-
-# Run the training script with srun
+# Run the script with srun
 # srun ensures proper resource allocation and process management
-srun uv run python training.py --config "$CONFIG_FILE" "$@"
+srun uv run python "$SCRIPT" --config "$CONFIG_FILE" "$@"
 
 # Capture exit status
 EXIT_STATUS=$?
 
 # =============================================================================
-# Post-Training Diagnostics
+# Post-Execution Diagnostics
 # =============================================================================
-
 echo "=============================================="
-echo "Training completed with exit status: $EXIT_STATUS"
+echo "${ACTION} completed with exit status: $EXIT_STATUS"
 echo "End time: $(date)"
 echo "=============================================="
-
 echo "=============================================="
 echo "Job $SLURM_JOB_ID finished"
 echo "=============================================="
