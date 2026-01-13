@@ -12,6 +12,7 @@ Usage:
     python evaluate.py --config configs/evaluate.yaml --n-obs 25
     python evaluate.py --config configs/evaluate.yaml --snr-db 50
     python evaluate.py --config configs/evaluate.yaml --method encoder
+    python evaluate.py --config configs/evaluate.yaml --batch-size 64
 """
 import argparse
 import json
@@ -115,63 +116,67 @@ def evaluate(config: TrainingConfig, verbose: bool = True):
         n_total=n_points,
         n_obs=eval_cfg.n_obs,
         method=eval_cfg.obs_sampling,
-        seed=eval_cfg.obs_seed,
+        seed=config.seed,
     )
+
+    # Get batch size (default to n_test if not specified or larger)
+    batch_size = getattr(eval_cfg, 'batch_size', n_test)
+    batch_size = min(batch_size, n_test)
 
     print(f"\nEvaluation setup:")
     print(f"  Test samples: {n_test}")
+    print(f"  Batch size: {batch_size}")
     print(f"  Grid points: {n_points}")
     print(f"  Observations: {eval_cfg.n_obs} ({eval_cfg.obs_sampling} sampling)")
     print(f"  SNR: {eval_cfg.snr_db} dB" if eval_cfg.snr_db else "  SNR: Clean (no noise)")
     print(f"  Inversion epochs: {eval_cfg.inversion.epochs}")
     print(f"  Loss weights: PDE={eval_cfg.inversion.loss_weights.pde}, Data={eval_cfg.inversion.loss_weights.data}")
 
-    # Run inversion on each test sample
+    # Run batched inversion
     all_metrics_u = []
     all_metrics_a = []
     per_sample_results = []
 
-    print(f"\nRunning inversion on {n_test} samples...")
+    n_batches = (n_test + batch_size - 1) // batch_size
+    print(f"\nRunning inversion on {n_test} samples in {n_batches} batches...")
 
-    for i in trange(n_test, desc="Evaluating", disable=not verbose):
-        # Prepare observations for this sample
+    for batch_start in trange(0, n_test, batch_size, desc="Batches", disable=not verbose):
+        batch_end = min(batch_start + batch_size, n_test)
+        batch_indices = list(range(batch_start, batch_end))
+        current_batch_size = len(batch_indices)
+
+        # Prepare observations for entire batch
         obs_data = problem.prepare_observations(
-            sample_idx=i,
+            sample_indices=batch_indices,
             obs_indices=obs_indices,
             snr_db=eval_cfg.snr_db,
         )
 
-        # Run inversion
-        if eval_cfg.method == 'igno':
-            beta_opt = inverter.invert(
-                x_obs=obs_data['x_obs'],
-                u_obs=obs_data['u_obs'],
-                x_full=obs_data['x_full'],
-                config=eval_cfg.inversion,
-                verbose=False,
-            )
-        else:
-            beta_opt = inverter.invert(
-                x_obs=obs_data['x_obs'],
-                u_obs=obs_data['u_obs'],
-                x_full=obs_data['x_full'],
-            )
+        # Run batched inversion
+        betas_opt = inverter.invert(
+            x_obs=obs_data['x_obs'],
+            u_obs=obs_data['u_obs'],
+            x_full=obs_data['x_full'],
+            config=eval_cfg.inversion,
+            verbose=False,  # Don't spam per-batch epoch progress
+        )
 
-        # Predict on full grid
-        preds = problem.predict_from_beta(beta_opt, obs_data['x_full'])
+        # Predict on full grid (batched)
+        preds = problem.predict_from_beta(betas_opt, obs_data['x_full'])
 
-        # Compute metrics
-        metrics_u = compute_all_metrics(preds['u_pred'], obs_data['u_true'])
-        metrics_a = compute_all_metrics(preds['a_pred'], obs_data['a_true'])
+        # Compute metrics per sample in batch
+        for i, sample_idx in enumerate(batch_indices):
+            metrics_u = compute_all_metrics(preds['u_pred'][i], obs_data['u_true'][i])
+            metrics_a = compute_all_metrics(preds['a_pred'][i], obs_data['a_true'][i])
 
-        all_metrics_u.append(metrics_u)
-        all_metrics_a.append(metrics_a)
+            all_metrics_u.append(metrics_u)
+            all_metrics_a.append(metrics_a)
 
-        per_sample_results.append({
-            'sample_idx': i,
-            'u_metrics': metrics_u,
-            'a_metrics': metrics_a,
-        })
+            per_sample_results.append({
+                'sample_idx': sample_idx,
+                'u_metrics': metrics_u,
+                'a_metrics': metrics_a,
+            })
 
     # Aggregate
     aggregated_u = aggregate_metrics(all_metrics_u)
@@ -183,6 +188,7 @@ def evaluate(config: TrainingConfig, verbose: bool = True):
             'n_obs': eval_cfg.n_obs,
             'obs_sampling': eval_cfg.obs_sampling,
             'snr_db': eval_cfg.snr_db,
+            'batch_size': batch_size,
             'inversion_epochs': eval_cfg.inversion.epochs,
             'loss_weights': {
                 'pde': eval_cfg.inversion.loss_weights.pde,
@@ -207,6 +213,7 @@ def main():
     parser.add_argument('--n-obs', type=int, help='Number of observations')
     parser.add_argument('--snr-db', type=float, help='SNR in dB (use 0 for clean)')
     parser.add_argument('--inversion-epochs', type=int, help='Inversion epochs')
+    parser.add_argument('--batch-size', type=int, help='Batch size for evaluation')
     parser.add_argument('--seed', type=int, help='Random seed')
     parser.add_argument('--quiet', action='store_true', help='Less verbose output')
 
@@ -228,9 +235,10 @@ def main():
         config.evaluation.snr_db = args.snr_db if args.snr_db > 0 else None
     if args.inversion_epochs:
         config.evaluation.inversion.epochs = args.inversion_epochs
+    if args.batch_size:
+        config.evaluation.batch_size = args.batch_size
     if args.seed:
         config.seed = args.seed
-        config.evaluation.obs_seed = args.seed
 
     print(f"Config: {args.config}")
     print(f"Device: {config.device}")
@@ -249,4 +257,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

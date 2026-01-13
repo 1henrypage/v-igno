@@ -189,7 +189,6 @@ class EvaluationConfig(BaseConfig):
     # Observation setup
     n_obs: int = 100
     obs_sampling: Literal['random', 'grid', 'lhs'] = 'random'
-    obs_seed: int = 42
 
     # Noise (None for clean)
     snr_db: Optional[float] = None
@@ -208,7 +207,6 @@ class EvaluationConfig(BaseConfig):
             method=data.get('method', 'igno'),
             n_obs=data.get('n_obs', 100),
             obs_sampling=data.get('obs_sampling', 'random'),
-            obs_seed=data.get('obs_seed', 42),
             snr_db=data.get('snr_db', 25.0),
             inversion=InversionConfig.from_dict(data.get('inversion', {})),
             results_dir=data.get('results_dir', 'results'),

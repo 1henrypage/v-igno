@@ -16,16 +16,19 @@ pretrained:
 # Evaluation settings
 evaluation:
   method: "igno"  # "igno" or "encoder"
-
+  
+  # Batch size for parallel inversion (significant speedup)
+  # Set to large value to process all samples at once (memory permitting)
+  batch_size: 200
+  
   # Observation setup
   n_obs: 100              # Number of observation points
   obs_sampling: "random"  # "random", "grid"
-  obs_seed: 10086         # Seed for observation sampling (reproducibility)
 
   # Noise (SNR-based, same as IGNO paper)
   # Set to null for clean observations
   snr_db: null            # 20, 25, 50, 100 are common values
-
+  
   # IGNO inversion parameters
   inversion:
     epochs: 1000
@@ -40,7 +43,6 @@ evaluation:
       type: StepLR
       step_size: 250
       gamma: 0.66666667
-
+  
   # Output directory for results
   results_dir: "results"
-

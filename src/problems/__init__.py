@@ -393,9 +393,10 @@ class ProblemInstance(ABC):
         else:
             raise ValueError(f"Unknown sampling method: {method}")
 
+    @abstractmethod
     def prepare_observations(
         self,
-        sample_idx: int,
+        sample_indices: List[int],
         obs_indices: np.ndarray,
         snr_db: float = None
     ) -> Dict[str, torch.Tensor]:

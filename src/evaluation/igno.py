@@ -3,6 +3,8 @@ IGNO-style gradient-based inversion.
 
 Given sparse noisy observations, optimize beta to minimize
 PDE loss + data loss, starting from NF sample.
+
+Supports batched inversion for processing multiple samples simultaneously.
 """
 import torch
 import torch.nn as nn
@@ -19,10 +21,13 @@ class IGNOInverter:
     IGNO gradient-based inversion.
 
     Process:
-    1. Sample z ~ N(0, I)
-    2. Pass through NF inverse to get initial beta
-    3. Optimize beta via gradient descent on: w_pde * L_pde + w_data * L_data
-    4. Return optimized beta
+    1. Sample z ~ N(0, I) for each sample in batch
+    2. Pass through NF inverse to get initial betas
+    3. Optimize betas via gradient descent on: w_pde * L_pde + w_data * L_data
+    4. Return optimized betas
+
+    Supports batched inversion where multiple independent samples are
+    optimized in parallel for significant speedup.
     """
 
     def __init__(self, problem: ProblemInstance, nf: RealNVP):
@@ -49,24 +54,29 @@ class IGNOInverter:
         verbose: bool = False,
     ) -> torch.Tensor:
         """
-        Run gradient-based inversion.
+        Run gradient-based inversion on one or more samples.
+
+        Supports batched inversion where multiple independent samples are
+        optimized simultaneously for significant speedup.
 
         Args:
-            x_obs: Observation coordinates (1, n_obs, 2)
-            u_obs: Noisy observations (1, n_obs, 1)
-            x_full: Full grid coordinates (1, n_points, 2) - for PDE loss
+            x_obs: Observation coordinates (batch, n_obs, 2)
+            u_obs: Noisy observations (batch, n_obs, 1)
+            x_full: Full grid coordinates (batch, n_points, 2) - for PDE loss
             config: Inversion configuration
             verbose: Print progress
 
         Returns:
-            Optimized beta (1, latent_dim)
+            Optimized beta (batch, latent_dim)
         """
-        # Initialize: sample z ~ N(0,I), pass through NF inverse
-        z = torch.randn(1, self.nf.dim, device=self.device)
+        batch_size = x_obs.shape[0]
+
+        # Initialize: sample z ~ N(0,I) for all samples, pass through NF inverse
+        z = torch.randn(batch_size, self.nf.dim, device=self.device)
         beta_init, _ = self.nf.inverse(z)
         beta = nn.Parameter(beta_init.clone().detach().requires_grad_(True))
 
-        # Setup optimizer
+        # Setup optimizer (optimizing single parameter tensor containing all betas)
         optimizer = get_optimizer(config.optimizer, [beta])
         scheduler = get_scheduler(config.scheduler, optimizer)
 
@@ -74,7 +84,7 @@ class IGNOInverter:
 
         iterator = trange(config.epochs, desc="Inverting", disable=not verbose)
         for epoch in iterator:
-            # PDE loss
+            # PDE loss (batched)
             loss_pde = self._compute_pde_loss(beta)
 
             # Data loss (predicted u at obs points vs observed u)
@@ -100,7 +110,7 @@ class IGNOInverter:
         return beta.detach()
 
     def _compute_pde_loss(self, beta: torch.Tensor) -> torch.Tensor:
-        """PDE residual loss with given beta."""
+        """PDE residual loss with given beta (supports batched beta)."""
         return self.problem.loss_pde_from_beta(beta)
 
     def _compute_data_loss(
@@ -115,39 +125,6 @@ class IGNOInverter:
         Uses relative L2 norm: ||u_pred - u_obs|| / ||u_obs||
         """
         return self.problem.loss_data_from_beta(beta, x_obs, u_obs, target_type='u')
-
-    def invert_batch(
-        self,
-        observations: list,
-        config: InversionConfig,
-        verbose: bool = True,
-    ) -> list:
-        """
-        Run inversion on multiple samples.
-
-        Args:
-            observations: List of observation dicts from prepare_observations
-            config: Inversion configuration
-            verbose: Print progress
-
-        Returns:
-            List of optimized betas
-        """
-        betas = []
-        for i, obs in enumerate(observations):
-            if verbose:
-                print(f"\nSample {i+1}/{len(observations)}")
-
-            beta = self.invert(
-                x_obs=obs['x_obs'],
-                u_obs=obs['u_obs'],
-                x_full=obs['x_full'],
-                config=config,
-                verbose=verbose,
-            )
-            betas.append(beta)
-
-        return betas
 
 
 class EncoderInverter:
@@ -185,26 +162,14 @@ class EncoderInverter:
         Encode observations directly to latent space.
 
         Args:
-            x_obs: Observation coordinates (1, n_obs, 2)
-            u_obs: Noisy observations (1, n_obs, 1)
+            x_obs: Observation coordinates (batch, n_obs, 2)
+            u_obs: Noisy observations (batch, n_obs, 1)
             x_full: Full grid coordinates (not used, for API compatibility)
 
         Returns:
-            Encoded beta (1, latent_dim)
+            Encoded beta (batch, latent_dim)
         """
         raise NotImplementedError(
             "Implement invert() for your encoder-based method.\n"
             "Should encode (x_obs, u_obs) -> beta"
         )
-
-    def invert_batch(self, observations: list, **kwargs) -> list:
-        """Run inversion on multiple samples."""
-        betas = []
-        for obs in observations:
-            beta = self.invert(
-                x_obs=obs['x_obs'],
-                u_obs=obs['u_obs'],
-                x_full=obs['x_full'],
-            )
-            betas.append(beta)
-        return betas

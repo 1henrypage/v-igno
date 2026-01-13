@@ -10,13 +10,15 @@ Additional _from_beta methods for inversion/encoder:
 - loss_data_from_beta(beta, x, target, target_type): data loss directly from beta
 
 All models (enc, u, a, nf) are built in _build_models().
+
+Supports batched operations for efficient evaluation.
 """
 
 import torch
 import torch.nn as nn
 import numpy as np
 from torch.autograd import grad, Variable
-from typing import Dict
+from typing import Dict, List
 from pathlib import Path
 
 from src.components.encoder import EncoderCNNet2dTanh
@@ -29,13 +31,11 @@ from src.utils.RBFInterpolatorMesh import RBFInterpolator
 from src.utils.solver_utils import get_model
 from src.utils.npy_loader import NpyFile
 
-
 class TorchMollifier:
     def __call__(self, u, x):
         pi = torch.pi
         u = u * torch.sin(pi * x[..., 0]) * torch.sin(pi * x[..., 1])
         return u.unsqueeze(-1)
-
 
 @register_problem("darcy_continuous")
 class DarcyContinuous(ProblemInstance):
@@ -292,6 +292,7 @@ class DarcyContinuous(ProblemInstance):
 
     # =========================================================================
     # FROM_BETA METHODS (for inversion/encoder - skip encoding step)
+    # Supports batched beta inputs for efficient evaluation.
     # =========================================================================
 
     def loss_pde_from_beta(self, beta: torch.Tensor) -> torch.Tensor:
@@ -300,17 +301,18 @@ class DarcyContinuous(ProblemInstance):
 
         -div(a * grad(u)) = f, with f = 10
 
+        Supports batched inputs for efficient parallel inversion.
+
         Args:
             beta: Latent representation (batch, latent_dim)
 
         Returns:
-            PDE residual loss
+            PDE residual loss (scalar mean over batch)
         """
         nc = 100
         n_batch = beta.shape[0]
-        assert n_batch == 1  # sanity check for inversion
 
-        # Data points
+        # Data points (shared across all samples in batch)
         # xc:size(nc, 1, 2) R:size(nc, 1, 1)
         xc, R = self.genPoint.weight_centers(n_center=nc, R_max=1e-4, R_min=1e-4)
         xc, R = xc.to(self.device), R.to(self.device)
@@ -342,7 +344,7 @@ class DarcyContinuous(ProblemInstance):
         right = (f * v).reshape(n_batch, nc, self.n_grid)
         right = torch.mean(right, dim=-1)
 
-        loss_pde = torch.norm(left - right, 2, 1)
+        loss_pde = torch.norm(left - right, 2, 1)  # (n_batch,)
 
         return torch.mean(loss_pde)
 
@@ -351,6 +353,8 @@ class DarcyContinuous(ProblemInstance):
         """
         Compute data fitting loss given beta directly.
 
+        Supports batched inputs for efficient parallel inversion.
+
         Args:
             beta: Latent representation (batch, latent_dim)
             x: Coordinates (batch, n_points, 2)
@@ -358,7 +362,7 @@ class DarcyContinuous(ProblemInstance):
             target_type: 'a' for coefficient, 'u' for solution
 
         Returns:
-            Data fitting loss
+            Data fitting loss (scalar mean over batch)
         """
         if target_type == 'a':
             pred = self.model_dict['a'](x, beta)
@@ -406,6 +410,8 @@ class DarcyContinuous(ProblemInstance):
         """
         Given beta, predict u and a on given coordinates.
 
+        Supports batched inputs.
+
         Args:
             beta: Latent representation (batch, latent_dim)
             x: Coordinates (batch, n_points, 2)
@@ -429,40 +435,45 @@ class DarcyContinuous(ProblemInstance):
 
     def prepare_observations(
         self,
-        sample_idx: int,
+        sample_indices: List[int],
         obs_indices: np.ndarray,
         snr_db: float = None
     ) -> Dict[str, torch.Tensor]:
         """
-        Prepare observation data for a single test sample.
+        Prepare observation data for test samples.
+
+        Supports batched preparation for efficient evaluation.
 
         Args:
-            sample_idx: Index into test set
-            obs_indices: Indices of observation points
+            sample_indices: List of indices into test set
+            obs_indices: Indices of observation points (same for all samples)
             snr_db: SNR for noise (None for clean)
 
         Returns:
             Dict with x_full, x_obs, u_obs, u_true, a_true
+            All tensors have shape (batch, ...)
         """
-        # Get single sample from test set
-        a_true = self.test_data['a'][sample_idx]  # (n_points, 1)
-        u_true = self.test_data['u'][sample_idx]  # (n_points, 1)
-        x_full = self.test_data['x'][sample_idx]  # (n_points, 2)
+        batch_size = len(sample_indices)
 
-        # Extract observations
-        x_obs = x_full[obs_indices]
-        u_obs = u_true[obs_indices].clone()
+        # Stack all samples along batch dimension
+        a_true = torch.stack([self.test_data['a'][i] for i in sample_indices])  # (batch, n_points, 1)
+        u_true = torch.stack([self.test_data['u'][i] for i in sample_indices])  # (batch, n_points, 1)
+        x_full = torch.stack([self.test_data['x'][i] for i in sample_indices])  # (batch, n_points, 2)
+
+        # Extract observations (same indices for all samples)
+        x_obs = x_full[:, obs_indices, :]      # (batch, n_obs, 2)
+        u_obs = u_true[:, obs_indices, :].clone()  # (batch, n_obs, 1)
 
         # Add noise if specified
         if snr_db is not None:
             u_obs = self.add_noise_snr(u_obs, snr_db)
 
         return {
-            'x_full': x_full.unsqueeze(0).to(self.device),      # (1, n_points, 2)
-            'x_obs': x_obs.unsqueeze(0).to(self.device),         # (1, n_obs, 2)
-            'u_obs': u_obs.unsqueeze(0).to(self.device),         # (1, n_obs, 1)
-            'u_true': u_true.unsqueeze(0).to(self.device),       # (1, n_points, 1)
-            'a_true': a_true.unsqueeze(0).to(self.device),       # (1, n_points, 1)
+            'x_full': x_full.to(self.device),      # (batch, n_points, 2)
+            'x_obs': x_obs.to(self.device),         # (batch, n_obs, 2)
+            'u_obs': u_obs.to(self.device),         # (batch, n_obs, 1)
+            'u_true': u_true.to(self.device),       # (batch, n_points, 1)
+            'a_true': a_true.to(self.device),       # (batch, n_points, 1)
         }
 
     def get_n_test_samples(self) -> int:
@@ -472,4 +483,3 @@ class DarcyContinuous(ProblemInstance):
     def get_n_points(self) -> int:
         """Get number of grid points per sample."""
         return self.test_data['x'].shape[1]
-
