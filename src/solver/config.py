@@ -186,9 +186,12 @@ class EvaluationConfig(BaseConfig):
     """Config for evaluation/inversion."""
     method: Literal['igno', 'encoder'] = 'igno'
 
+    # Batch size
+    batch_size: int = None
+
     # Observation setup
     n_obs: int = 100
-    obs_sampling: Literal['random', 'grid', 'lhs'] = 'random'
+    obs_sampling: Literal['random', 'grid'] = 'random'
 
     # Noise (None for clean)
     snr_db: Optional[float] = None
@@ -205,6 +208,7 @@ class EvaluationConfig(BaseConfig):
             return cls()
         return cls(
             method=data.get('method', 'igno'),
+            batch_size=data.get('batch_size', None),
             n_obs=data.get('n_obs', 100),
             obs_sampling=data.get('obs_sampling', 'random'),
             snr_db=data.get('snr_db', 25.0),
