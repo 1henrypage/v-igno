@@ -5,99 +5,60 @@ import torch
 import torch.nn as nn
 from typing import Tuple
 
-from src.utils.misc_utils import get_default_device
 
-
-class ScaleTranslateNet(nn.Module):
-    """Predicts scale and translation for affine coupling."""
-
-    def __init__(self, cond_dim: int, out_dim: int, hidden_dim: int = 64, num_layers: int = 2):
+class FCNN(nn.Module):
+    """Simple fully connected neural network."""
+    def __init__(self, in_dim, out_dim, hidden_dim, num_layers=2):
         super().__init__()
-
-        layers = [nn.Linear(cond_dim, hidden_dim), nn.SiLU()]
+        layers = [nn.Linear(in_dim, hidden_dim), nn.SiLU()]
         for _ in range(num_layers - 1):
-            layers += [nn.Linear(hidden_dim, hidden_dim), nn.SiLU()]
+            layers.extend([nn.Linear(hidden_dim, hidden_dim), nn.SiLU()])
+        layers.append(nn.Linear(hidden_dim, out_dim))
+        self.network = nn.Sequential(*layers)
 
-        self.net = nn.Sequential(*layers)
-        self.scale_layer = nn.Linear(hidden_dim, out_dim)
-        self.translate_layer = nn.Linear(hidden_dim, out_dim)
-
-        # Start as identity transform
-        nn.init.zeros_(self.scale_layer.weight)
-        nn.init.zeros_(self.scale_layer.bias)
-
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        h = self.net(x)
-        scale = torch.tanh(self.scale_layer(h)) * 2.0
-        translation = self.translate_layer(h)
-        return scale, translation
+    def forward(self, x):
+        return self.network(x)
 
 
-class CouplingLayer(nn.Module):
-    """RealNVP affine coupling layer."""
-
-    def __init__(self, dim: int, hidden_dim: int = 64, num_layers: int = 2, flip_mask: bool = False):
+class RealNVPFlow(nn.Module):
+    """Single RealNVP flow (2 transforms)."""
+    def __init__(self, dim, hidden_dim=64, num_layers=2):
         super().__init__()
         self.dim = dim
+        self.t1 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
+        self.s1 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
+        self.t2 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
+        self.s2 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
 
-        mask = torch.zeros(dim)
-        mask[::2] = 1
-        if flip_mask:
-            mask = 1 - mask
+    def forward(self, x):
+        lower, upper = x[:, :self.dim // 2], x[:, self.dim // 2:]
+        t1_transformed = self.t1(lower)
+        s1_transformed = self.s1(lower)
+        upper = t1_transformed + upper * torch.exp(s1_transformed)
+        t2_transformed = self.t2(upper)
+        s2_transformed = self.s2(upper)
+        lower = t2_transformed + lower * torch.exp(s2_transformed)
+        z = torch.cat([lower, upper], dim=1)
+        log_det = torch.sum(s1_transformed, dim=1) + torch.sum(s2_transformed, dim=1)
+        return z, log_det
 
-        self.register_buffer("mask", mask.bool())
-
-        cond_dim = self.mask.sum().item()
-        trans_dim = (~self.mask).sum().item()
-
-        self.st_net = ScaleTranslateNet(
-            cond_dim=cond_dim,
-            out_dim=trans_dim,
-            hidden_dim=hidden_dim,
-            num_layers=num_layers
-        )
-
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        x1 = x[:, self.mask]
-        x2 = x[:, ~self.mask]
-
-        scale, translation = self.st_net(x1)
-        y2 = x2 * torch.exp(scale) + translation
-
-        y = x.clone()
-        y[:, ~self.mask] = y2
-
-        log_det = scale.sum(dim=1)
-        return y, log_det
-
-    def inverse(self, y: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        y1 = y[:, self.mask]
-        y2 = y[:, ~self.mask]
-
-        scale, translation = self.st_net(y1)
-        x2 = (y2 - translation) * torch.exp(-scale)
-
-        x = y.clone()
-        x[:, ~self.mask] = x2
-
-        log_det = -scale.sum(dim=1)
+    def inverse(self, z):
+        lower, upper = z[:, :self.dim // 2], z[:, self.dim // 2:]
+        t2_transformed = self.t2(upper)
+        s2_transformed = self.s2(upper)
+        lower = (lower - t2_transformed) * torch.exp(-s2_transformed)
+        t1_transformed = self.t1(lower)
+        s1_transformed = self.s1(lower)
+        upper = (upper - t1_transformed) * torch.exp(-s1_transformed)
+        x = torch.cat([lower, upper], dim=1)
+        log_det = -torch.sum(s1_transformed, dim=1) - torch.sum(s2_transformed, dim=1)
         return x, log_det
 
 
 class RealNVP(nn.Module):
-    """RealNVP normalizing flow."""
-
-    def __init__(
-        self,
-        dim: int = None,
-        num_flows: int = None,
-        hidden_dim: int = None,
-        num_layers: int = None,
-        config=None,
-     ):
+    """Stacked RealNVP flows."""
+    def __init__(self, dim=None, num_flows=None, hidden_dim=None, num_layers=None, config=None):
         super().__init__()
-
-
 
         if config is not None:
             dim = config.dim
@@ -107,40 +68,23 @@ class RealNVP(nn.Module):
 
         assert all(value is not None for value in [dim, num_flows, hidden_dim, num_layers])
 
-
         self.dim = dim
-
-        self.flows = nn.ModuleList([
-            CouplingLayer(
-                dim=dim,
-                hidden_dim=hidden_dim,
-                num_layers=num_layers,
-                flip_mask=(i % 2 == 1)
-            )
-            for i in range(num_flows)
-        ])
-
+        self.flows = nn.ModuleList([RealNVPFlow(dim, hidden_dim, num_layers) for _ in range(num_flows)])
         self.register_buffer("log_2pi", torch.log(torch.tensor(2 * torch.pi)))
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        z = x
         log_det_total = torch.zeros(x.size(0), device=x.device)
-
         for flow in self.flows:
-            z, log_det = flow(z)
+            x, log_det = flow(x)
             log_det_total += log_det
-
-        return z, log_det_total
+        return x, log_det_total
 
     def inverse(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        x = z
         log_det_total = torch.zeros(z.size(0), device=z.device)
-
         for flow in reversed(self.flows):
-            x, log_det = flow.inverse(x)
+            z, log_det = flow.inverse(z)
             log_det_total += log_det
-
-        return x, log_det_total
+        return z, log_det_total
 
     def log_prob(self, x: torch.Tensor) -> torch.Tensor:
         """Log-likelihood: beta -> z direction."""
@@ -154,7 +98,7 @@ class RealNVP(nn.Module):
 
     def sample(self, num_samples: int, device=None):
         if device is None:
-            device = get_default_device()
+            device = next(self.parameters()).device
         z = torch.randn(num_samples, self.dim, device=device)
         x, _ = self.inverse(z)
         return x
