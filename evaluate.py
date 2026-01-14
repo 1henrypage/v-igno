@@ -119,6 +119,8 @@ def evaluate(config: TrainingConfig, verbose: bool = True):
         seed=config.seed,
     )
 
+    print(f"Observation index size: {obs_indices.shape}")
+
     # Get batch size (default to n_test if not specified or larger)
     batch_size = getattr(eval_cfg, 'batch_size', n_test)
     batch_size = min(batch_size, n_test)
@@ -163,6 +165,14 @@ def evaluate(config: TrainingConfig, verbose: bool = True):
 
         # Predict on full grid (batched)
         preds = problem.predict_from_beta(betas_opt, obs_data['x_full'])
+        # preds['a_pred'].shape == preds['u_pred'].shape == [batch_size, number_of_observations, 1] I verified this
+
+
+
+        # print("u_pred:", preds['u_pred'].shape, preds['u_pred'][0, :20])
+        # print("a_pred:", preds['a_pred'].shape, preds['a_pred'][0, :5])
+        # print("u_true:", obs_data['u_true'][batch_indices].shape, obs_data['u_true'][batch_indices][0, :20])
+        # print("a_true:", obs_data['a_true'][batch_indices].shape, obs_data['a_true'][batch_indices][0, :5])
 
         # Compute metrics per sample in batch
         for i, sample_idx in enumerate(batch_indices):

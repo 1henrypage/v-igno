@@ -368,10 +368,11 @@ class DarcyContinuous(ProblemInstance):
             pred = self.model_dict['a'](x, beta)
             return self.get_loss(pred, target.squeeze(-1))
         elif target_type == 'u':
+            # I debugged this earlier, both pred and target are [batch_size, obs_size, 1]
             pred = self.model_dict['u'](x, beta)
             pred = self.mollifier(pred, x)
-            loss = torch.norm(pred - target, 2, 1) / torch.norm(target, 2, 1)
-            return torch.mean(loss)
+            mse = ((pred - target) ** 2).mean()
+            return mse
         else:
             raise ValueError(f"Unknown target_type: {target_type}")
 
@@ -423,10 +424,13 @@ class DarcyContinuous(ProblemInstance):
             u_pred = self.model_dict['u'](x, beta)
             u_pred = self.mollifier(u_pred, x)
             a_pred = self.model_dict['a'](x, beta)
+            a_pred = a_pred.unsqueeze(-1)
+
+        # I debugged this, Both are [batch_size, output_grid_size, 1] after the transformations
 
         return {
             'u_pred': u_pred,
-            'a_pred': a_pred.unsqueeze(-1) if a_pred.dim() == 2 else a_pred,
+            'a_pred':  a_pred,
         }
 
     # =========================================================================
@@ -467,6 +471,8 @@ class DarcyContinuous(ProblemInstance):
         # Add noise if specified
         if snr_db is not None:
             u_obs = self.add_noise_snr(u_obs, snr_db)
+
+        # print(f"x_full.shape: {x_full.shape}, x_obs.shape: {x_obs.shape}, u_obs.shape: {u_obs.shape}, u_true.shape: {u_true.shape}, a_true.shape: {a_true.shape}")
 
         return {
             'x_full': x_full.to(self.device),      # (batch, n_points, 2)

@@ -50,7 +50,7 @@ def cross_correlation(pred: torch.Tensor, true: torch.Tensor) -> float:
     For discontinuous targets, measures morphological similarity.
 
     I_corr = sum(a_true_scaled^2 * a_rec_scaled^2) /
-             (sqrt(sum(a_true_scaled^4)) * sqrt(sum(a_rec_scaled^4)))
+             (sqrt(sum(a_true_scaled^2)) * sqrt(sum(a_rec_scaled^2)))
 
     Where a_scaled denotes coefficients rescaled to [0, 1].
 
@@ -72,12 +72,12 @@ def cross_correlation(pred: torch.Tensor, true: torch.Tensor) -> float:
 
     # Compute I_corr from Eq. 15
     # Numerator: sum(a_true^2 * a_rec^2)
-    # Denominator: sqrt(sum(a_true^4)) * sqrt(sum(a_rec^4))
+    # Denominator: sqrt(sum(a_true^2)) * sqrt(sum(a_rec^2))
     true_sq = true_scaled ** 2
     pred_sq = pred_scaled ** 2
 
     numerator = (true_sq * pred_sq).sum()
-    denominator = torch.sqrt((true_sq ** 2).sum()) * torch.sqrt((pred_sq ** 2).sum())
+    denominator = torch.sqrt(true_sq.sum()) * torch.sqrt(pred_sq.sum())
 
     if denominator < 1e-10:
         return 0.0
@@ -96,6 +96,8 @@ def compute_all_metrics(pred: torch.Tensor, true: torch.Tensor) -> Dict[str, flo
     Returns:
         Dictionary with all metrics
     """
+
+    #pred.shape == true.shape == [number_of_observations, 1], I checked this
     return {
         'rmse': rmse(pred, true),
         'relative_l2': relative_l2(pred, true),
