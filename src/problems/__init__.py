@@ -69,12 +69,9 @@ class ProblemInstance(ABC):
         self,
         device: torch.device | str = None,
         dtype: torch.dtype = torch.float32,
-        seed: int = 10086,
         train_data_path: str = None,
         test_data_path: str = None,
     ) -> None:
-        setup_seed(seed)
-        self.seed = seed
 
         self.device = torch.device(device) if device else get_default_device()
         self.dtype = dtype
@@ -371,7 +368,6 @@ class ProblemInstance(ABC):
         n_total: int,
         n_obs: int,
         method: str = "random",
-        seed: int = None
     ) -> np.ndarray:
         """
         Sample observation point indices.
@@ -453,7 +449,6 @@ def create_problem(config, load_train_data: bool = True) -> ProblemInstance:
     problem_cls = get_problem_class(config.problem.type)
     return problem_cls(
         device=config.device,
-        seed=config.seed,
         train_data_path=config.problem.train_data if load_train_data else None,
         test_data_path=config.problem.test_data,
     )

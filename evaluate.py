@@ -20,6 +20,8 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+from src.utils.misc_utils import setup_seed
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 import torch
@@ -249,6 +251,8 @@ def main():
         config.evaluation.batch_size = args.batch_size
     if args.seed:
         config.seed = args.seed
+        setup_seed(config.seed)
+
 
     print(f"Config: {args.config}")
     print(f"Device: {config.device}")

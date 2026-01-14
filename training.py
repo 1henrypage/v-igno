@@ -12,6 +12,9 @@ from src.problems import create_problem, ProblemInstance
 
 import sys
 from pathlib import Path
+
+from src.utils.misc_utils import setup_seed
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 
@@ -86,6 +89,7 @@ def main():
         config.pretrained = {'path': args.pretrained}
     if args.seed:
         config.seed = args.seed
+        setup_seed(config.seed)
 
     print(f"Config: {args.config}")
     print(f"Device: {config.device}, Seed: {config.seed}")

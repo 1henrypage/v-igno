@@ -16,7 +16,9 @@ class Point1D():
         self.ub = x_ub
         self.dtype = dataType
         #
-        np.random.seed(random_seed)
+        if random_seed is not None:
+            np.random.seed(random_seed)
+
         self.lhs_x = qmc.LatinHypercube(1, seed=random_seed)
 
     def inner_point(self, num_sample: int = 100, method='uniform'):
@@ -55,7 +57,9 @@ class Point2D():
         self.ub = x_ub
         self.dtype = dataType
         #
-        np.random.seed(random_seed)
+
+        if random_seed is not None:
+            np.random.seed(random_seed)
         self.lhs_1d = qmc.LatinHypercube(1, seed=random_seed)
         self.lhs_x = qmc.LatinHypercube(2, seed=random_seed)
 
