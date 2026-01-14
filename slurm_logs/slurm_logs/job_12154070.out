@@ -1,0 +1,118 @@
+==============================================
+Job ID: 12154070
+Job Name: darcy_continuous
+Node: gpu25.daic.tudelft.net
+Starting time: Wed Jan 14 01:09:16 CET 2026
+==============================================
+GPU Information:
+Wed Jan 14 01:09:16 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 550.144.03             Driver Version: 550.144.03     CUDA Version: 12.4     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A40                     On  |   00000000:E2:00.0 Off |                    0 |
+|  0%   47C    P0             84W /  300W |       1MiB /  46068MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+==============================================
+Working directory: /home/nfs/hpage/v-igno
+==============================================
+Mode: evaluate
+Using configuration: configs/evaluation/darcy_continuous_in.yaml
+Additional arguments: 
+==============================================
+Starting Evaluation...
+Command: uv run python evaluate.py --config configs/evaluation/darcy_continuous_in.yaml 
+==============================================
+Config: configs/evaluation/darcy_continuous_in.yaml
+Device: cuda
+Problem: darcy_continuous
+Creating problem: darcy_continuous
+Loading data...
+  Test:  a=torch.Size([200, 841, 1]), u=torch.Size([200, 841, 1])
+Setting up grids and test functions...
+  int_grid: torch.Size([45, 2]), v: torch.Size([45, 1])
+Building models...
+  enc: 140,416 parameters
+  u: 114,206 parameters
+  a: 114,206 parameters
+  nf: 49,920 parameters
+Problem initialized.
+
+Loading checkpoint: runs/2026-01-12_19-32-43_darcy_continuous/foundation/weights/best.pt
+Loading checkpoint: runs/2026-01-12_19-32-43_darcy_continuous/foundation/weights/best.pt
+  Loaded: enc
+  Loaded: u
+  Loaded: a
+  Loaded: nf
+
+Using IGNO gradient-based inversion
+
+Evaluation setup:
+  Test samples: 200
+  Batch size: 200
+  Grid points: 841
+  Observations: 100 (random sampling)
+  SNR: Clean (no noise)
+  Inversion epochs: 500
+  Loss weights: PDE=1.0, Data=50.0
+
+Running inversion on 200 samples in 1 batches...
+
+============================================================
+EVALUATION RESULTS
+============================================================
+
+U Metrics:
+  rmse:
+    mean: 0.573012
+    std:  0.478000
+    min:  0.092551
+    max:  2.857351
+  relative_l2:
+    mean: 0.911124
+    std:  0.629665
+    min:  0.303246
+    max:  3.801538
+  cross_correlation:
+    mean: 0.837496
+    std:  0.137332
+    min:  0.348298
+    max:  0.989946
+
+A Metrics:
+  rmse:
+    mean: 1.297043
+    std:  0.716435
+    min:  0.223444
+    max:  3.269991
+  relative_l2:
+    mean: 1.326136
+    std:  0.771458
+    min:  0.331649
+    max:  4.170731
+  cross_correlation:
+    mean: 0.661477
+    std:  0.191567
+    min:  0.231270
+    max:  0.978898
+
+Results saved to: results/eval_igno_nobs100_clean_2026-01-14_01-17-22.json
+==============================================
+Evaluation completed with exit status: 0
+End time: Wed Jan 14 01:17:30 CET 2026
+==============================================
+==============================================
+Job 12154070 finished
+==============================================
