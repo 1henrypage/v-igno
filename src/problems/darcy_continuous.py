@@ -371,8 +371,8 @@ class DarcyContinuous(ProblemInstance):
             # I debugged this earlier, both pred and target are [batch_size, obs_size, 1]
             pred = self.model_dict['u'](x, beta)
             pred = self.mollifier(pred, x)
-            mse = ((pred - target) ** 2).mean()
-            return mse
+            loss = torch.norm(pred - target, 2, 1) / torch.norm(target, 2, 1)  # RELATIVE!
+            return torch.mean(loss)
         else:
             raise ValueError(f"Unknown target_type: {target_type}")
 
