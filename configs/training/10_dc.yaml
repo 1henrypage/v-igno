@@ -1,7 +1,7 @@
 # Training Configuration
 # NF architecture is hardcoded per-problem in _build_models()
 
-run_name: "30000"
+run_name: "10_dc"
 device: "cuda"
 artifact_root: "runs"
 seed: 10086
@@ -14,8 +14,8 @@ problem:
 stages:
   - foundation
 
-pretrained:
-  path: "./runs/2026-01-12_19-32-43_darcy_continuous/foundation/weights/best_dgno.pt"
+# pretrained:
+#   path: "/path/to/checkpoint.pt"
 
 # Phase 1: DGNO (encoder + decoders)
 dgno:
@@ -38,7 +38,7 @@ dgno:
 # Note: NF architecture (dim, num_flows, hidden_dim, num_layers) is
 # hardcoded in the problem's _build_models() method
 nf:
-  epochs: 20000
+  epochs: 10000
   batch_size: 50
   epoch_show: 200
   optimizer:
