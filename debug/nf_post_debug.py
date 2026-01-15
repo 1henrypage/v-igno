@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-ckpt = torch.load('/Users/henry/school/v-igno/runs/2026-01-15_17-20-33_20000/foundation/weights/best.pt', weights_only=False, map_location='mps')
+ckpt = torch.load('/Users/henry/school/v-igno/runs/2026-01-15_22-30-32_30000/foundation/weights/best.pt', weights_only=False, map_location='mps')
 
 
 
