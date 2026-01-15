@@ -19,7 +19,7 @@ stages:
 
 # Phase 1: DGNO (encoder + decoders)
 dgno:
-  epochs: 15000
+  epochs: 20000
   batch_size: 50
   epoch_show: 50
   loss_weights:
