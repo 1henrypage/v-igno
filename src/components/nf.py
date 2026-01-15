@@ -45,11 +45,11 @@ class RealNVPFlow(nn.Module):
         lower, upper = x[:, :self.dim // 2], x[:, self.dim // 2:]
 
         t1 = self.t1(lower)
-        s1 = self.log_scale_base1 + self.s1(lower)
+        s1 = self.log_scale_base1 + torch.tanh(self.s1(lower)) * 3.0
         upper = t1 + upper * torch.exp(s1)
 
         t2 = self.t2(upper)
-        s2 = self.log_scale_base2 + self.s2(upper)
+        s2 = self.log_scale_base2 + torch.tanh(self.s2(upper)) * 3.0
         lower = t2 + lower * torch.exp(s2)
 
         z = torch.cat([lower, upper], dim=1)
@@ -60,11 +60,11 @@ class RealNVPFlow(nn.Module):
         lower, upper = z[:, :self.dim // 2], z[:, self.dim // 2:]
 
         t2 = self.t2(upper)
-        s2 = self.log_scale_base2 + self.s2(upper)
+        s2 = self.log_scale_base2 + torch.tanh(self.s2(upper)) * 3.0
         lower = (lower - t2) * torch.exp(-s2)
 
         t1 = self.t1(lower)
-        s1 = self.log_scale_base1 + self.s1(lower)
+        s1 = self.log_scale_base1 + torch.tanh(self.s1(lower)) * 3.0
         upper = (upper - t1) * torch.exp(-s1)
 
         x = torch.cat([lower, upper], dim=1)
