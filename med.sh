@@ -18,12 +18,12 @@
 # the DGNO framework on TU Delft's AI Cluster (DAIC).
 #
 # Usage:
-#   sbatch slurm_job.sh <MODE> <CONFIG_FILE> [ADDITIONAL_ARGS]
+#   sbatch med.sh <MODE> <CONFIG_FILE> [ADDITIONAL_ARGS]
 #
 # Examples:
-#   sbatch slurm_job.sh train configs/my_experiment.yaml
-#   sbatch slurm_job.sh train configs/my_experiment.yaml --seed 42
-#   sbatch slurm_job.sh evaluate configs/eval_config.yaml
+#   sbatch med.sh train configs/my_experiment.yaml
+#   sbatch med.sh train configs/my_experiment.yaml --seed 42
+#   sbatch  evaluate configs/eval_config.yaml
 # =============================================================================
 
 # Print job information

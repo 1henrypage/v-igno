@@ -5,7 +5,6 @@
 # This script provides convenient commands for managing SLURM jobs on DAIC
 #
 # Usage:
-#   ./slurm_helper.sh submit <mode> <config_file> [args]  # Submit single job
 #   ./slurm_helper.sh submit-array [config_list]          # Submit array job
 #   ./slurm_helper.sh status                              # Check job status
 #   ./slurm_helper.sh cancel <job_id>                     # Cancel a job
@@ -51,10 +50,10 @@ print_info() {
 # Command functions
 cmd_submit() {
     print_header "Submitting Single Job"
-    
+
     MODE="${1:-train}"
     shift || true
-    
+
     # Validate mode
     if [[ "$MODE" != "train" && "$MODE" != "evaluate" ]]; then
         print_error "Invalid mode: $MODE"
@@ -62,25 +61,25 @@ cmd_submit() {
         print_info "Usage: ./slurm_helper.sh submit <mode> <config_file> [args]"
         exit 1
     fi
-    
+
     CONFIG_FILE="${1:-configs/example_config.yaml}"
     shift || true
-    
+
     if [ ! -f "$CONFIG_FILE" ]; then
         print_error "Config file not found: $CONFIG_FILE"
         exit 1
     fi
-    
+
     print_info "Mode: $MODE"
     print_info "Config: $CONFIG_FILE"
     print_info "Additional args: $*"
-    
+
     # Create logs directory
     mkdir -p slurm_logs
-    
+
     # Submit job with mode as first argument
     JOB_ID=$(sbatch slurm_job.sh "$MODE" "$CONFIG_FILE" "$@" | awk '{print $4}')
-    
+
     if [ -n "$JOB_ID" ]; then
         print_success "Job submitted with ID: $JOB_ID"
         print_info "Monitor with: squeue -j $JOB_ID"
