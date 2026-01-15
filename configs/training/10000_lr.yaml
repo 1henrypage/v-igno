@@ -1,7 +1,7 @@
 # Training Configuration
 # NF architecture is hardcoded per-problem in _build_models()
 
-run_name: "darcy_continuous_just_nf"
+run_name: "learning_rate_10000"
 device: "cuda"
 artifact_root: "runs"
 seed: 10086
