@@ -1,7 +1,7 @@
 # Training Configuration
 # NF architecture is hardcoded per-problem in _build_models()
 
-run_name: "learning_rate_10000"
+run_name: "30000"
 device: "cuda"
 artifact_root: "runs"
 seed: 10086
@@ -38,12 +38,12 @@ dgno:
 # Note: NF architecture (dim, num_flows, hidden_dim, num_layers) is
 # hardcoded in the problem's _build_models() method
 nf:
-  epochs: 10000
+  epochs: 20000
   batch_size: 50
   epoch_show: 200
   optimizer:
     type: Adam
-    lr: 0.0005
+    lr: 0.001
     weight_decay: 0.0001
   scheduler:
     type: StepLR

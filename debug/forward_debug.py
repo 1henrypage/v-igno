@@ -5,7 +5,10 @@
 import torch
 from src.components.nf import RealNVP
 
-ckpt = torch.load('/Users/henry/school/v-igno/runs/2026-01-15_15-33-35_darcy_continuous_just_nf_only_clipping/foundation/weights/best.pt', weights_only=False, map_location='mps')
+
+ckpt = torch.load('/Users/henry/school/v-igno/runs/2026-01-15_17-20-33_20000/foundation/weights/best.pt', weights_only=False, map_location='mps')
+
+
 
 nf = RealNVP(dim=128, num_flows=3, hidden_dim=64, num_layers=2)
 nf.load_state_dict(ckpt['models']['nf'])

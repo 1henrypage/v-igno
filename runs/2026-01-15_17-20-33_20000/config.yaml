@@ -1,0 +1,84 @@
+run_name: '20000'
+device: cuda
+artifact_root: runs
+seed: 10086
+problem:
+  type: darcy_continuous
+  train_data: data/darcy_continuous/smh_train/
+  test_data: data/darcy_continuous/smh_test_in/
+stages:
+- foundation
+pretrained:
+  path: ./runs/2026-01-12_19-32-43_darcy_continuous/foundation/weights/best_dgno.pt
+dgno:
+  epochs: 10000
+  batch_size: 50
+  epoch_show: 50
+  loss_weights:
+    pde: 0.25
+    data: 2.0
+  optimizer:
+    type: Adam
+    lr: 0.001
+    weight_decay: 0.0001
+  scheduler:
+    type: StepLR
+    step_size: 2500
+    gamma: 0.5
+    patience: null
+    factor: null
+nf:
+  epochs: 20000
+  batch_size: 50
+  epoch_show: 200
+  optimizer:
+    type: Adam
+    lr: 0.001
+    weight_decay: 0.0001
+  scheduler:
+    type: StepLR
+    step_size: 2500
+    gamma: 0.5
+    patience: null
+    factor: null
+encoder:
+  epochs: 1000
+  batch_size: 100
+  epoch_show: 100
+  freeze_decoder: true
+  freeze_nf: true
+  loss_weights:
+    pde: 0
+    data: 0
+  optimizer:
+    type: Adam
+    lr: 0.0001
+    weight_decay: 0.0001
+  scheduler:
+    type: Plateau
+    step_size: null
+    gamma: null
+    patience: 50
+    factor: 0.5
+evaluation:
+  method: igno
+  batch_size: null
+  n_obs: 100
+  obs_sampling: random
+  snr_db: 25.0
+  inversion:
+    epochs: 1000
+    loss_weights:
+      pde: null
+      data: null
+    optimizer:
+      type: null
+      lr: null
+      weight_decay: null
+    scheduler:
+      type: null
+      step_size: null
+      gamma: null
+      patience: null
+      factor: null
+  results_dir: results

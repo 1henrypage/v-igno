@@ -1,12 +1,14 @@
 import torch
 import numpy as np
 
-ckpt = torch.load('/Users/henry/school/v-igno/runs/2026-01-15_15-33-35_darcy_continuous_just_nf_only_clipping/foundation/weights/best.pt', weights_only=False, map_location='mps')
+ckpt = torch.load('/Users/henry/school/v-igno/runs/2026-01-15_17-20-33_20000/foundation/weights/best.pt', weights_only=False, map_location='mps')
+
 
 
 # Load training data
-a = np.load('data/darcy_continuous/smh_train/coeff.npy')
-a = torch.from_numpy(a.reshape(-1, 1000).T).float().reshape(1000, -1, 1)
+raw = np.load('data/darcy_continuous/smh_train/coeff.npy')  # (29, 29, 1000)
+a = torch.from_numpy(raw.T).float()  # (1000, 29, 29)
+a = a.reshape(a.shape[0], -1, 1)     # (1000, 841, 1)
 
 # Load encoder
 from src.components.encoder import EncoderCNNet2dTanh
