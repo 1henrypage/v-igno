@@ -25,33 +25,50 @@ class RealNVPFlow(nn.Module):
     def __init__(self, dim, hidden_dim=64, num_layers=2):
         super().__init__()
         self.dim = dim
+
         self.t1 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
         self.s1 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
         self.t2 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
         self.s2 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
 
+        # Zero-init scale networks for identity transform at init
+        nn.init.zeros_(self.s1.network[-1].weight)
+        nn.init.zeros_(self.s1.network[-1].bias)
+        nn.init.zeros_(self.s2.network[-1].weight)
+        nn.init.zeros_(self.s2.network[-1].bias)
+
+        # Learnable global log-scale (Glow-style)
+        self.log_scale_base1 = nn.Parameter(torch.zeros(dim // 2))
+        self.log_scale_base2 = nn.Parameter(torch.zeros(dim // 2))
+
     def forward(self, x):
         lower, upper = x[:, :self.dim // 2], x[:, self.dim // 2:]
-        t1_transformed = self.t1(lower)
-        s1_transformed = self.s1(lower)
-        upper = t1_transformed + upper * torch.exp(s1_transformed)
-        t2_transformed = self.t2(upper)
-        s2_transformed = self.s2(upper)
-        lower = t2_transformed + lower * torch.exp(s2_transformed)
+
+        t1 = self.t1(lower)
+        s1 = self.log_scale_base1 + self.s1(lower)
+        upper = t1 + upper * torch.exp(s1)
+
+        t2 = self.t2(upper)
+        s2 = self.log_scale_base2 + self.s2(upper)
+        lower = t2 + lower * torch.exp(s2)
+
         z = torch.cat([lower, upper], dim=1)
-        log_det = torch.sum(s1_transformed, dim=1) + torch.sum(s2_transformed, dim=1)
+        log_det = s1.sum(dim=1) + s2.sum(dim=1)
         return z, log_det
 
     def inverse(self, z):
         lower, upper = z[:, :self.dim // 2], z[:, self.dim // 2:]
-        t2_transformed = self.t2(upper)
-        s2_transformed = self.s2(upper)
-        lower = (lower - t2_transformed) * torch.exp(-s2_transformed)
-        t1_transformed = self.t1(lower)
-        s1_transformed = self.s1(lower)
-        upper = (upper - t1_transformed) * torch.exp(-s1_transformed)
+
+        t2 = self.t2(upper)
+        s2 = self.log_scale_base2 + self.s2(upper)
+        lower = (lower - t2) * torch.exp(-s2)
+
+        t1 = self.t1(lower)
+        s1 = self.log_scale_base1 + self.s1(lower)
+        upper = (upper - t1) * torch.exp(-s1)
+
         x = torch.cat([lower, upper], dim=1)
-        log_det = -torch.sum(s1_transformed, dim=1) - torch.sum(s2_transformed, dim=1)
+        log_det = -s1.sum(dim=1) - s2.sum(dim=1)
         return x, log_det
 
 
