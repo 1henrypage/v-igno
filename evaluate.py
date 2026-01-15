@@ -251,7 +251,6 @@ def main():
         config.evaluation.batch_size = args.batch_size
     if args.seed:
         config.seed = args.seed
-        setup_seed(config.seed)
 
 
     print(f"Config: {args.config}")

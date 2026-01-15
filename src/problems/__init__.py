@@ -67,11 +67,14 @@ class ProblemInstance(ABC):
 
     def __init__(
         self,
+        seed: int,
         device: torch.device | str = None,
         dtype: torch.dtype = torch.float32,
         train_data_path: str = None,
         test_data_path: str = None,
     ) -> None:
+        setup_seed(seed)
+        self.seed = seed
 
         self.device = torch.device(device) if device else get_default_device()
         self.dtype = dtype
@@ -376,10 +379,7 @@ class ProblemInstance(ABC):
             n_total: Total number of grid points
             n_obs: Number of observations to sample
             method: "random", "grid", or "lhs"
-            seed: Random seed for reproducibility
         """
-        if seed is not None:
-            np.random.seed(seed)
 
         if method == "random":
             return np.sort(np.random.choice(n_total, n_obs, replace=False))
@@ -448,6 +448,7 @@ def create_problem(config, load_train_data: bool = True) -> ProblemInstance:
     """
     problem_cls = get_problem_class(config.problem.type)
     return problem_cls(
+        seed=config.seed,
         device=config.device,
         train_data_path=config.problem.train_data if load_train_data else None,
         test_data_path=config.problem.test_data,

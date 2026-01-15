@@ -52,9 +52,10 @@ class DarcyContinuous(ProblemInstance):
     NF_HIDDEN_DIM = 64
     NF_NUM_LAYERS = 2
 
-    def __init__(self, device=None, dtype=torch.float32, 
+    def __init__(self, seed:int, device=None, dtype=torch.float32,
                  train_data_path: str = None, test_data_path: str = None):
         super().__init__(
+            seed=seed,
             device=device,
             dtype=dtype,
             train_data_path=train_data_path,

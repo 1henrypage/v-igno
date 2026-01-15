@@ -17,8 +17,7 @@ class Point1D():
         self.dtype = dataType
         #
 
-        if random_seed is not None:
-            np.random.seed(random_seed)
+        np.random.seed(random_seed)
         self.lhs_t = qmc.LatinHypercube(1, seed=random_seed)
         self.lhs_x = qmc.LatinHypercube(1, seed=random_seed + 10086)
 
@@ -170,8 +169,7 @@ class Point2D():
         self.ub = x_ub
         self.dtype = dataType
         #
-        if random_seed is not None:
-            np.random.seed(random_seed)
+        np.random.seed(random_seed)
         self.lhs_t = qmc.LatinHypercube(1, seed=random_seed)
         self.lhs_x = qmc.LatinHypercube(2, seed=random_seed)
 
