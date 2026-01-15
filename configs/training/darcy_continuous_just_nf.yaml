@@ -1,7 +1,7 @@
 # Training Configuration
 # NF architecture is hardcoded per-problem in _build_models()
 
-run_name: "darcy_continuous"
+run_name: "darcy_continuous_just_nf"
 device: "cuda"
 artifact_root: "runs"
 seed: 10086
@@ -15,8 +15,7 @@ stages:
   - foundation
 
 pretrained:
-  path: "./runs/2026-01-12_19-32-43_darcy_continuous/foundation/weights/best.pt"
-
+  path: "./runs/2026-01-12_19-32-43_darcy_continuous/foundation/weights/best_dgno.pt"
 
 # Phase 1: DGNO (encoder + decoders)
 dgno:
@@ -41,7 +40,7 @@ dgno:
 nf:
   epochs: 10000
   batch_size: 50
-  epoch_show: 100
+  epoch_show: 200
   optimizer:
     type: Adam
     lr: 0.001

@@ -40,7 +40,7 @@ dgno:
 nf:
   epochs: 10000
   batch_size: 50
-  epoch_show: 100
+  epoch_show: 200
   optimizer:
     type: Adam
     lr: 0.001
