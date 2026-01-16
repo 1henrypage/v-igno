@@ -248,7 +248,6 @@ class FoundationTrainer:
     def _train_nf(self, train_data: Dict, test_data: Dict, config: TrainingConfig) -> Dict[str, Any]:
         """
         Train Normalizing Flow on latent representations.
-
         DGNO models are frozen during this phase.
         """
         cfg = config.nf
@@ -262,10 +261,17 @@ class FoundationTrainer:
         self.optimizer = get_optimizer(cfg.optimizer, list(nf.parameters()))
         self.scheduler = get_scheduler(cfg.scheduler, self.optimizer)
 
-        # Extract latents from frozen encoder
+        # Debug: print optimizer settings
+        print(f"Optimizer: lr={self.optimizer.param_groups[0]['lr']}, "
+              f"weight_decay={self.optimizer.param_groups[0]['weight_decay']}")
+
+        # Extract latents from frozen encoder and keep on device
         print("Extracting latents...")
-        latents_train = self._extract_latents(train_data['a'], cfg.batch_size)
-        latents_test = self._extract_latents(test_data['a'], cfg.batch_size)
+        latents_train = self._extract_latents(train_data['a'], cfg.batch_size).to(self.device)
+        latents_test = self._extract_latents(test_data['a'], cfg.batch_size).to(self.device)
+
+        print(f"Latents train: mean={latents_train.mean():.4f}, std={latents_train.std():.4f}")
+        print(f"Latents test:  mean={latents_test.mean():.4f}, std={latents_test.std():.4f}")
 
         train_loader = var_data_loader(latents_train, batch_size=cfg.batch_size, shuffle=True)
         test_loader = var_data_loader(latents_test, batch_size=cfg.batch_size, shuffle=False)
@@ -280,7 +286,6 @@ class FoundationTrainer:
 
             train_nll = 0.
             for (z,) in train_loader:
-                z = z.to(self.device)
                 loss = nf.loss(z)
 
                 self.optimizer.zero_grad()
@@ -296,7 +301,7 @@ class FoundationTrainer:
 
             with torch.no_grad():
                 for (z,) in test_loader:
-                    test_nll += nf.loss(z.to(self.device)).item()
+                    test_nll += nf.loss(z).item()
 
             avg_train = train_nll / len(train_loader)
             avg_test = test_nll / len(test_loader)
@@ -324,9 +329,18 @@ class FoundationTrainer:
                 else:
                     self.scheduler.step()
 
-            # Print progress
+            # Debug prints every epoch_show
             if (epoch + 1) % cfg.epoch_show == 0:
+                with torch.no_grad():
+                    z_out, _ = nf.forward(latents_train[:100])
+                    z_sample = torch.randn(100, nf.dim, device=self.device)
+                    beta_out, _ = nf.inverse(z_sample)
+
+                    # Check scale base values
+                    base1_vals = [nf.flows[i].log_scale_base1.mean().item() for i in range(len(nf.flows))]
+
                 print(f"\nEpoch {epoch + 1}: Train NLL={avg_train:.4f}, Test NLL={avg_test:.4f}")
+                print(f"  z_std: {z_out.std():.3f} | inv_std: {beta_out.std():.4f} | base1: {base1_vals}")
 
         # Save last checkpoint
         self.problem.save_checkpoint(

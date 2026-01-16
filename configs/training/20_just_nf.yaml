@@ -47,7 +47,7 @@ nf:
     weight_decay: 0.0
   scheduler:
     type: StepLR
-    step_size: 2500
+    step_size: 5000
     gamma: 0.5
 
 # Optional: Encoder training (separate phase)

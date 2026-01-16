@@ -7,13 +7,15 @@ import torch.nn as nn
 import numpy as np
 from pathlib import Path
 
+torch.manual_seed(10086)
+
 # === CONFIG (modify these for ablations) ===
 ABLATION = {
     'weight_decay': 0.0000,      # Try: 0.0 vs 0.0001
-    'tanh_scale': 3.0,        # Try: 3.0, 5.0, 8.0
-    'grad_clip': 5.0,         # Try: 1.0, 5.0, 10.0, None
+    'tanh_scale': 8.0,        # Try: 3.0, 5.0, 8.0
+    'grad_clip': 1.0,         # Try: 1.0, 5.0, 10.0, None
     'lr': 0.001,
-    'epochs': 2000,
+    'epochs': 10000,
     'print_every': 200,
 }
 
@@ -27,7 +29,7 @@ from src.components.encoder import EncoderCNNet2dTanh
 from src.utils.npy_loader import NpyFile
 
 
-ckpt = torch.load('/Users/henry/school/v-igno/runs/2026-01-12_19-32-43_darcy_continuous/foundation/weights/best_dgno.pt', weights_only=False, map_location=torch.device("mps"))  # UPDATE THIS PATH
+ckpt = torch.load('/Users/henry/school/v-igno/runs/stable_dgno_darcy_continuous/foundation/weights/best_dgno.pt', weights_only=False, map_location=torch.device("mps"))  # UPDATE THIS PATH
 
 enc = EncoderCNNet2dTanh(
     conv_arch=[1, 64, 64, 64],
