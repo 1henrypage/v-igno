@@ -90,7 +90,8 @@ class DarcyContinuous(ProblemInstance):
         self.genPoint = Point2D(
             x_lb=[0., 0.],
             x_ub=[1., 1.],
-            dataType=self.dtype
+            dataType=self.dtype,
+            random_seed=self.seed
         )
 
         int_grid, v, dv_dr = TestFun_ParticleWNN(

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=darcy_continuous     # Job name
+#SBATCH --job-name=med_vigno     # Job name
 #SBATCH --qos=medium                    # Request QoS (short=4h, medium=2d, long=7d)
 #SBATCH --time=23:00:00                 # Request run time (wall-clock)
 #SBATCH --partition=general,insy        # Request against appropriate partitions
