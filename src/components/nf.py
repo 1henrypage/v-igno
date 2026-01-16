@@ -6,6 +6,10 @@ import torch.nn as nn
 from typing import Tuple
 
 
+# Determined through several days of tril and error
+TAN_SCALER = 8.0
+
+
 class FCNN(nn.Module):
     """Simple fully connected neural network."""
     def __init__(self, in_dim, out_dim, hidden_dim, num_layers=2):
@@ -45,11 +49,11 @@ class RealNVPFlow(nn.Module):
         lower, upper = x[:, :self.dim // 2], x[:, self.dim // 2:]
 
         t1 = self.t1(lower)
-        s1 = self.log_scale_base1 + torch.tanh(self.s1(lower)) * 3.0
+        s1 = self.log_scale_base1 + torch.tanh(self.s1(lower)) * TAN_SCALER
         upper = t1 + upper * torch.exp(s1)
 
         t2 = self.t2(upper)
-        s2 = self.log_scale_base2 + torch.tanh(self.s2(upper)) * 3.0
+        s2 = self.log_scale_base2 + torch.tanh(self.s2(upper)) * TAN_SCALER
         lower = t2 + lower * torch.exp(s2)
 
         z = torch.cat([lower, upper], dim=1)
@@ -60,11 +64,11 @@ class RealNVPFlow(nn.Module):
         lower, upper = z[:, :self.dim // 2], z[:, self.dim // 2:]
 
         t2 = self.t2(upper)
-        s2 = self.log_scale_base2 + torch.tanh(self.s2(upper)) * 3.0
+        s2 = self.log_scale_base2 + torch.tanh(self.s2(upper)) * TAN_SCALER
         lower = (lower - t2) * torch.exp(-s2)
 
         t1 = self.t1(lower)
-        s1 = self.log_scale_base1 + torch.tanh(self.s1(lower)) * 3.0
+        s1 = self.log_scale_base1 + torch.tanh(self.s1(lower)) * TAN_SCALER
         upper = (upper - t1) * torch.exp(-s1)
 
         x = torch.cat([lower, upper], dim=1)
