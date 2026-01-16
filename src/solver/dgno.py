@@ -186,6 +186,7 @@ class FoundationTrainer:
 
                 self.optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(dgno_params, max_norm=100.0)
                 self.optimizer.step()
 
                 loss_sum += loss.item()
