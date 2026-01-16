@@ -100,7 +100,7 @@ def get_optimizer(
     return OPTIMIZERS[optimizer_type](
         params=param_list,
         lr=optimizer_config.lr,
-        weight_decay=1e-4,
+        weight_decay=optimizer_config.weight_decay,
     )
 
 def get_scheduler(
@@ -126,6 +126,7 @@ def get_scheduler(
             last_epoch=-1
         )
     elif scheduler_type=='Plateau':
+        raise ValueError("We don't ever use this")
         return SCHEDULERS[scheduler_type](
             optimizer=optimizer,
             mode='min',

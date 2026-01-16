@@ -1,9 +1,7 @@
 import torch
 import numpy as np
 
-ckpt = torch.load('/Users/henry/school/v-igno/runs/2026-01-15_22-30-32_30000/foundation/weights/best.pt', weights_only=False, map_location='mps')
-
-
+ckpt = torch.load('/Users/henry/school/v-igno/runs/2026-01-16_18-36-51_10_just_nf/foundation/weights/best.pt', weights_only=False, map_location='mps')
 
 # Load training data
 raw = np.load('data/darcy_continuous/smh_train/coeff.npy')  # (29, 29, 1000)
