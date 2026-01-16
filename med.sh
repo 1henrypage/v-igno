@@ -4,8 +4,8 @@
 #SBATCH --time=23:00:00                 # Request run time (wall-clock)
 #SBATCH --partition=general,insy        # Request against appropriate partitions
 #SBATCH --ntasks=1                      # Number of (gpu) tasks (keep at 1)
-#SBATCH --cpus-per-task=8               # 8 CPU cores (good for data loading)
-#SBATCH --mem=64G                       # 64GB RAM (adjust if needed)
+#SBATCH --cpus-per-task=2               # 8 CPU cores (good for data loading)
+#SBATCH --mem=32G                       # 64GB RAM (adjust if needed)
 #SBATCH --gres=gpu:a40:1                # Request 1 L40 GPU
 #SBATCH --output=slurm_logs/job_%j.out  # Set name of output log (%j = jobID)
 #SBATCH --error=slurm_logs/job_%j.err   # Set name of error log (%j = jobID)
