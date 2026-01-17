@@ -290,7 +290,7 @@ class FoundationTrainer:
 
                 self.optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(parameters=nf.parameters(), max_norm=1.0, error_if_nonfinite=True)
+                torch.nn.utils.clip_grad_norm_(parameters=nf.parameters(), max_norm=5.0, error_if_nonfinite=True)
                 self.optimizer.step()
 
                 train_nll += loss.item()
