@@ -1,13 +1,8 @@
-"""
-RealNVP Normalizing Flow.
-"""
 import torch
 import torch.nn as nn
 from typing import Tuple
 
-
-# Determined through several days of tril and error
-TAN_SCALER = 8.0
+TAN_SCALER = 3.5
 
 
 class FCNN(nn.Module):
@@ -25,59 +20,56 @@ class FCNN(nn.Module):
 
 
 class RealNVPFlow(nn.Module):
-    """Single RealNVP flow (2 transforms)."""
+    """Single RealNVP flow with two affine coupling layers."""
     def __init__(self, dim, hidden_dim=64, num_layers=2):
         super().__init__()
+        assert dim % 2 == 0, "Dimension must be even"
         self.dim = dim
+        self.half = dim // 2
 
-        self.t1 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
-        self.s1 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
-        self.t2 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
-        self.s2 = FCNN(dim // 2, dim // 2, hidden_dim, num_layers)
+        self.t1 = FCNN(self.half, self.half, hidden_dim, num_layers)
+        self.s1 = FCNN(self.half, self.half, hidden_dim, num_layers)
+        self.t2 = FCNN(self.half, self.half, hidden_dim, num_layers)
+        self.s2 = FCNN(self.half, self.half, hidden_dim, num_layers)
 
-        # Zero-init scale networks for identity transform at init
-        nn.init.zeros_(self.s1.network[-1].weight)
-        nn.init.zeros_(self.s1.network[-1].bias)
-        nn.init.zeros_(self.s2.network[-1].weight)
-        nn.init.zeros_(self.s2.network[-1].bias)
-
-        # Learnable global log-scale (Glow-style)
-        self.log_scale_base1 = nn.Parameter(torch.zeros(dim // 2))
-        self.log_scale_base2 = nn.Parameter(torch.zeros(dim // 2))
+        # Identity initialization
+        for net in [self.t1, self.s1, self.t2, self.s2]:
+            nn.init.zeros_(net.network[-1].weight)
+            nn.init.zeros_(net.network[-1].bias)
 
     def forward(self, x):
-        lower, upper = x[:, :self.dim // 2], x[:, self.dim // 2:]
+        x1, x2 = x[:, :self.half], x[:, self.half:]
 
-        t1 = self.t1(lower)
-        s1 = self.log_scale_base1 + torch.tanh(self.s1(lower)) * TAN_SCALER
-        upper = t1 + upper * torch.exp(s1)
+        s1 = TAN_SCALER * torch.tanh(self.s1(x1))
+        t1 = self.t1(x1)
+        y2 = x2 * torch.exp(s1) + t1
 
-        t2 = self.t2(upper)
-        s2 = self.log_scale_base2 + torch.tanh(self.s2(upper)) * TAN_SCALER
-        lower = t2 + lower * torch.exp(s2)
+        s2 = TAN_SCALER * torch.tanh(self.s2(y2))
+        t2 = self.t2(y2)
+        y1 = x1 * torch.exp(s2) + t2
 
-        z = torch.cat([lower, upper], dim=1)
+        y = torch.cat([y1, y2], dim=1)
         log_det = s1.sum(dim=1) + s2.sum(dim=1)
-        return z, log_det
+        return y, log_det
 
-    def inverse(self, z):
-        lower, upper = z[:, :self.dim // 2], z[:, self.dim // 2:]
+    def inverse(self, y):
+        y1, y2 = y[:, :self.half], y[:, self.half:]
 
-        t2 = self.t2(upper)
-        s2 = self.log_scale_base2 + torch.tanh(self.s2(upper)) * TAN_SCALER
-        lower = (lower - t2) * torch.exp(-s2)
+        s2 = TAN_SCALER * torch.tanh(self.s2(y2))
+        t2 = self.t2(y2)
+        x1 = (y1 - t2) * torch.exp(-s2)
 
-        t1 = self.t1(lower)
-        s1 = self.log_scale_base1 + torch.tanh(self.s1(lower)) * TAN_SCALER
-        upper = (upper - t1) * torch.exp(-s1)
+        s1 = TAN_SCALER * torch.tanh(self.s1(x1))
+        t1 = self.t1(x1)
+        x2 = (y2 - t1) * torch.exp(-s1)
 
-        x = torch.cat([lower, upper], dim=1)
-        log_det = -s1.sum(dim=1) - s2.sum(dim=1)
+        x = torch.cat([x1, x2], dim=1)
+        log_det = -(s1.sum(dim=1) + s2.sum(dim=1))
         return x, log_det
 
 
 class RealNVP(nn.Module):
-    """Stacked RealNVP flows."""
+    """Stacked RealNVP flows with post-flow permutations."""
     def __init__(self, dim=None, num_flows=None, hidden_dim=None, num_layers=None, config=None):
         super().__init__()
 
@@ -87,34 +79,53 @@ class RealNVP(nn.Module):
             hidden_dim = config.hidden_dim
             num_layers = config.num_layers
 
-        assert all(value is not None for value in [dim, num_flows, hidden_dim, num_layers])
-
+        assert all(v is not None for v in [dim, num_flows, hidden_dim, num_layers])
         self.dim = dim
-        self.flows = nn.ModuleList([RealNVPFlow(dim, hidden_dim, num_layers) for _ in range(num_flows)])
+
+        self.flows = nn.ModuleList([
+            RealNVPFlow(dim, hidden_dim, num_layers) for _ in range(num_flows)
+        ])
+
+        # Fixed reverse permutation (cheap & invertible)
+        self.register_buffer(
+            "perm",
+            torch.arange(dim - 1, -1, -1, dtype=torch.long)
+        )
+
         self.register_buffer("log_2pi", torch.log(torch.tensor(2 * torch.pi)))
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         log_det_total = torch.zeros(x.size(0), device=x.device)
-        for flow in self.flows:
+
+        for i, flow in enumerate(self.flows):
             x, log_det = flow(x)
             log_det_total += log_det
+
+            # Permute AFTER the flow (correct ordering)
+            if i < len(self.flows) - 1:
+                x = x[:, self.perm]
+
         return x, log_det_total
 
     def inverse(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         log_det_total = torch.zeros(z.size(0), device=z.device)
-        for flow in reversed(self.flows):
+
+        for i, flow in enumerate(reversed(self.flows)):
+            # Inverse permutation BEFORE inverse flow
+            if i > 0:
+                z = z[:, self.perm]
+
             z, log_det = flow.inverse(z)
             log_det_total += log_det
+
         return z, log_det_total
 
     def log_prob(self, x: torch.Tensor) -> torch.Tensor:
-        """Log-likelihood: beta -> z direction."""
         z, log_det = self.forward(x)
         log_pz = -0.5 * (z ** 2 + self.log_2pi).sum(dim=1)
         return log_pz + log_det
 
     def loss(self, x: torch.Tensor) -> torch.Tensor:
-        """Negative log-likelihood loss."""
         return -self.log_prob(x).mean()
 
     def sample(self, num_samples: int, device=None):
