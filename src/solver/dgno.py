@@ -344,7 +344,7 @@ class FoundationTrainer:
 
                 print(f"\nEpoch {epoch + 1}: Train NLL={avg_train:.4f}, Test NLL={avg_test:.4f}")
                 # | base1: {base1_vals}
-                print(f"  z_mean: {z_out.mean():.3f} z_std: {z_out.std():.3f} | inv_mean: {beta_out.mean():.3f} inv_std: {beta_out.std():.4f} ")
+                print(f"  z_mean: {z_out.mean():.3f} z_std: {z_out.std():.3f} | inv_mean: {beta_out.mean():.5f} inv_std: {beta_out.std():.4f} ")
 
         # Save last checkpoint
         self.problem.save_checkpoint(

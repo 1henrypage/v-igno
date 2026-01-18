@@ -38,17 +38,17 @@ dgno:
 # Note: NF architecture (dim, num_flows, hidden_dim, num_layers) is
 # hardcoded in the problem's _build_models() method
 nf:
-  epochs: 20000
+  epochs: 10000
   batch_size: 64
-  epoch_show: 100
+  epoch_show: 20
   optimizer:
     type: Adam
-    lr: 0.00001
+    lr: 0.001
     weight_decay: 0.0
   scheduler:
     type: StepLR
     step_size: 2500
-    gamma: 0.5
+    gamma: 0.25
 
 # Optional: Encoder training (separate phase)
 encoder:
