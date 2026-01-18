@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 
-ckpt = torch.load('/Users/henry/school/v-igno/runs/20_just_nf/foundation/weights/best.pt', weights_only=False, map_location='mps')
+ckpt = torch.load('/home/henry/school/v-igno/runs/stable_dgno_darcy_continuous/foundation/weights/best_dgno.pt', weights_only=False, map_location='cuda')
 
 # Load training data
 raw = np.load('data/darcy_continuous/smh_train/coeff.npy')  # (29, 29, 1000)
@@ -20,18 +20,22 @@ enc.load_state_dict(ckpt['models']['enc'])
 enc.eval()
 
 # Load new NF
-from src.components.nf import RealNVP
-nf = RealNVP(dim=128, num_flows=3, hidden_dim=64, num_layers=2)
-nf.load_state_dict(ckpt['models']['nf'])
-nf.eval()
+# from src.components.nf import RealNVP
+# nf = RealNVP(dim=128, num_flows=8, hidden_dim=64, num_layers=5)
+# nf.load_state_dict(ckpt['models']['nf'])
+# nf.eval()
+
+# for name, buf in nf.named_buffers():
+#     if "initialized" in name:
+#         print(f"{name} is {buf.item()} (Should be 1)")
 
 with torch.no_grad():
-    beta_encoded = enc(a[:100])
+    beta_encoded = enc(a)
     print(f"Encoded beta: mean={beta_encoded.mean():.4f}, std={beta_encoded.std():.4f}")
     
     z_out, _ = nf.forward(beta_encoded)
     print(f"NF forward:   mean={z_out.mean():.4f}, std={z_out.std():.4f}  (should be ~0, ~1)")
     
-    z_sample = torch.randn(100, 128)
+    z_sample = torch.randn(1000, 128)
     beta_out, _ = nf.inverse(z_sample)
     print(f"NF inverse:   mean={beta_out.mean():.4f}, std={beta_out.std():.4f}  (should match encoded)")

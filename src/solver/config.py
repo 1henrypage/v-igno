@@ -280,7 +280,7 @@ class TrainingConfig(BaseConfig):
             return None
         path = Path(self.pretrained.get('path', ''))
         if not path.exists():
-            return None
+            raise RuntimeError("Pretrained path doesn't exist.")
         if path.suffix == '.pt':
             return path
         stage = self.pretrained.get('stage', 'foundation')

@@ -91,9 +91,12 @@ class FoundationTrainer:
 
         # Load pretrained if specified
         ckpt_path = pretrained_path or config.get_pretrained_path()
-        if ckpt_path and ckpt_path.exists():
+        if ckpt_path:
+            if not ckpt_path.exists():
+                raise RuntimeError("Couldn't find pretrained checkpoint")
             print(f"Loading pretrained: {ckpt_path}")
             self.problem.load_checkpoint(ckpt_path, strict=False)
+
 
         # Save config
         config.save(self.run_dir / "config.yaml")
@@ -290,7 +293,7 @@ class FoundationTrainer:
 
                 self.optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(parameters=nf.parameters(), max_norm=5.0, error_if_nonfinite=True)
+                torch.nn.utils.clip_grad_norm_(parameters=nf.parameters(), max_norm=1.0, error_if_nonfinite=True)
                 self.optimizer.step()
 
                 train_nll += loss.item()
@@ -332,15 +335,16 @@ class FoundationTrainer:
             # Debug prints every epoch_show
             if (epoch + 1) % cfg.epoch_show == 0:
                 with torch.no_grad():
-                    z_out, _ = nf.forward(latents_train[:100])
-                    z_sample = torch.randn(100, nf.dim, device=self.device)
+                    z_out, _ = nf.forward(latents_train[:500])
+                    z_sample = torch.randn(500, nf.dim, device=self.device)
                     beta_out, _ = nf.inverse(z_sample)
 
                     # Check scale base values
-                    base1_vals = [nf.flows[i].log_scale_base1.mean().item() for i in range(len(nf.flows))]
+                    # base1_vals = [nf.flows[i].log_scale_base1.mean().item() for i in range(len(nf.flows))]
 
                 print(f"\nEpoch {epoch + 1}: Train NLL={avg_train:.4f}, Test NLL={avg_test:.4f}")
-                print(f"  z_std: {z_out.std():.3f} | inv_std: {beta_out.std():.4f} | base1: {base1_vals}")
+                # | base1: {base1_vals}
+                print(f"  z_mean: {z_out.mean():.3f} z_std: {z_out.std():.3f} | inv_mean: {beta_out.mean():.3f} inv_std: {beta_out.std():.4f} ")
 
         # Save last checkpoint
         self.problem.save_checkpoint(

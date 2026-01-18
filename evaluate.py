@@ -118,7 +118,6 @@ def evaluate(config: TrainingConfig, verbose: bool = True):
         n_total=n_points,
         n_obs=eval_cfg.n_obs,
         method=eval_cfg.obs_sampling,
-        seed=config.seed,
     )
 
     print(f"Observation index size: {obs_indices.shape}")

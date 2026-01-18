@@ -11,7 +11,7 @@ problem:
 
 # REQUIRED: Pretrained model weights (contains all models: enc, u, a, nf)
 pretrained:
-  path: "runs/2026-01-08_01-53-52_darcy_continuous_igno/foundation/weights/best.pt"
+  path: "./runs/2026-01-17_14-39-26_20_just_nf/foundation/weights/best.pt"
 
 # Evaluation settings
 evaluation:
@@ -19,7 +19,7 @@ evaluation:
   
   # Batch size for parallel inversion (significant speedup)
   # Set to large value to process all samples at once (memory permitting)
-  batch_size: 200
+  batch_size: 1
   
   # Observation setup
   n_obs: 100              # Number of observation points
@@ -38,7 +38,7 @@ evaluation:
     optimizer:
       type: Adam
       lr: 0.01
-      weight_decay: 0.0001
+      weight_decay: 0.0
     scheduler:
       type: StepLR
       step_size: 250

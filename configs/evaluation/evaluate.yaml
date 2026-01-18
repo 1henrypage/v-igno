@@ -11,7 +11,7 @@ problem:
 
 # REQUIRED: Pretrained model weights (contains all models: enc, u, a, nf)
 pretrained:
-  path: "runs/2026-01-08_01-53-52_darcy_continuous_igno/foundation/weights/best.pt"
+  path: "./runs/2026-01-08_01-53-52_darcy_continuous_igno/foundation/weights/best.pt"
 
 # Evaluation settings
 evaluation:
