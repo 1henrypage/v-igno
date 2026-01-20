@@ -66,12 +66,12 @@ class ProblemInstance(ABC):
     """
 
     def __init__(
-        self,
-        seed: int,
-        device: torch.device | str = None,
-        dtype: torch.dtype = torch.float32,
-        train_data_path: str = None,
-        test_data_path: str = None,
+            self,
+            seed: int,
+            device: torch.device | str = None,
+            dtype: torch.dtype = torch.float32,
+            train_data_path: str = None,
+            test_data_path: str = None,
     ) -> None:
         setup_seed(seed)
         self.seed = seed
@@ -89,11 +89,87 @@ class ProblemInstance(ABC):
         self.train_data: Dict[str, torch.Tensor] = {}
         self.test_data: Dict[str, torch.Tensor] = {}
 
+        # Latent standardization parameters (for NF training/inference)
+        # These are set during NF training and saved/loaded with checkpoints
+        self.latent_mean: Optional[torch.Tensor] = None
+        self.latent_std: Optional[torch.Tensor] = None
+
         # Loss/error functions
         self.get_loss = None
         self.get_error = None
         self.init_error()
         self.init_loss()
+
+    # =========================================================================
+    # Latent standardization (for NF)
+    # =========================================================================
+
+    def set_latent_standardization(self, mean: torch.Tensor, std: torch.Tensor) -> None:
+        """
+        Set latent standardization parameters.
+
+        Called by trainer after extracting latents from encoder.
+
+        Args:
+            mean: Per-dimension mean (1, latent_dim)
+            std: Per-dimension std (1, latent_dim)
+        """
+        self.latent_mean = mean.to(self.device)
+        self.latent_std = std.to(self.device)
+
+    def standardize_latent(self, beta: torch.Tensor) -> torch.Tensor:
+        """Standardize latent for NF input."""
+        if self.latent_mean is None or self.latent_std is None:
+            raise RuntimeError("Latent standardization not set. Train NF first or load checkpoint.")
+        return (beta - self.latent_mean) / self.latent_std
+
+    def destandardize_latent(self, beta_std: torch.Tensor) -> torch.Tensor:
+        """De-standardize latent from NF output."""
+        if self.latent_mean is None or self.latent_std is None:
+            raise RuntimeError("Latent standardization not set. Train NF first or load checkpoint.")
+        return beta_std * self.latent_std + self.latent_mean
+
+    def sample_latent_from_nf(self, num_samples) -> torch.Tensor:
+        """
+        Sample from NF prior and de-standardize to get valid latent.
+
+        Returns:
+            beta: Latent samples (num_samples, latent_dim)
+        """
+        nf = self.model_dict['nf']
+        nf.eval()
+
+        with torch.no_grad():
+            beta_std = nf.sample(num_samples, device=self.device)
+            beta = self.destandardize_latent(beta_std)
+
+        return beta
+
+    def log_prob_latent(self, beta: torch.Tensor) -> torch.Tensor:
+        """
+        Compute log p(beta) using NF, accounting for standardization.
+
+        For MCMC sampling, this gives the prior log-probability.
+
+        Args:
+            beta: Latent samples (batch, latent_dim) in original space
+
+        Returns:
+            log_prob: (batch,) log probability values
+        """
+        nf = self.model_dict['nf']
+
+        # Standardize
+        beta_std = self.standardize_latent(beta)
+
+        # Log prob in standardized space
+        log_prob_std = nf.log_prob(beta_std)
+
+        # Jacobian correction: d(beta_std)/d(beta) = 1/latent_std (diagonal)
+        # log|det J| = sum(log(1/latent_std)) = -sum(log(latent_std))
+        log_det_jacobian = -torch.log(self.latent_std).sum()
+
+        return log_prob_std + log_det_jacobian
 
     # =========================================================================
     # Model building (abstract - must be implemented by subclass)
@@ -127,17 +203,17 @@ class ProblemInstance(ABC):
     # =========================================================================
 
     def save_checkpoint(
-        self,
-        path: Path,
-        epoch: int,
-        optimizer: Optional[torch.optim.Optimizer] = None,
-        scheduler: Optional[Any] = None,
-        metric: Optional[float] = None,
-        metric_name: Optional[str] = None,
-        extra: Optional[Dict] = None,
+            self,
+            path: Path,
+            epoch: int,
+            optimizer: Optional[torch.optim.Optimizer] = None,
+            scheduler: Optional[Any] = None,
+            metric: Optional[float] = None,
+            metric_name: Optional[str] = None,
+            extra: Optional[Dict] = None,
     ) -> Path:
         """
-        Save checkpoint with all models.
+        Save checkpoint with all models and latent standardization.
 
         Args:
             path: Path to save checkpoint
@@ -156,6 +232,11 @@ class ProblemInstance(ABC):
             'epoch': epoch,
             'timestamp': datetime.now().isoformat(),
         }
+
+        # Save latent standardization if set
+        if self.latent_mean is not None:
+            state['latent_mean'] = self.latent_mean.cpu()
+            state['latent_std'] = self.latent_std.cpu()
 
         if metric is not None:
             state['metric'] = metric
@@ -176,14 +257,14 @@ class ProblemInstance(ABC):
         return path
 
     def load_checkpoint(
-        self,
-        path: Path,
-        models_to_load: Optional[List[str]] = None,
-        strict: bool = True,
-        load_optimizer: bool = False,
-        optimizer: Optional[torch.optim.Optimizer] = None,
-        load_scheduler: bool = False,
-        scheduler: Optional[Any] = None,
+            self,
+            path: Path,
+            models_to_load: Optional[List[str]] = None,
+            strict: bool = True,
+            load_optimizer: bool = False,
+            optimizer: Optional[torch.optim.Optimizer] = None,
+            load_scheduler: bool = False,
+            scheduler: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
         Load checkpoint into model_dict.
@@ -222,6 +303,13 @@ class ProblemInstance(ABC):
                 print(f"  Warning: {name} in checkpoint but not in model_dict (skipped)")
             elif name not in ckpt_models:
                 print(f"  Warning: {name} not in checkpoint")
+
+        # Load latent standardization if present
+        if 'latent_mean' in checkpoint:
+            self.latent_mean = checkpoint['latent_mean'].to(self.device)
+            self.latent_std = checkpoint['latent_std'].to(self.device)
+            print(f"  Loaded: latent standardization (mean_norm={self.latent_mean.norm():.4f}, "
+                  f"std_mean={self.latent_std.mean():.4f})")
 
         # Load optimizer if requested
         if load_optimizer and optimizer is not None and 'optimizer' in checkpoint:
@@ -367,10 +455,10 @@ class ProblemInstance(ABC):
         return signal + torch.randn_like(signal) * noise_std
 
     def sample_observation_indices(
-        self,
-        n_total: int,
-        n_obs: int,
-        method: str = "random",
+            self,
+            n_total: int,
+            n_obs: int,
+            method: str = "random",
     ) -> np.ndarray:
         """
         Sample observation point indices.
@@ -391,10 +479,10 @@ class ProblemInstance(ABC):
 
     @abstractmethod
     def prepare_observations(
-        self,
-        sample_indices: List[int],
-        obs_indices: np.ndarray,
-        snr_db: float = None
+            self,
+            sample_indices: List[int],
+            obs_indices: np.ndarray,
+            snr_db: float = None
     ) -> Dict[str, torch.Tensor]:
         """
         Prepare observation data for a single test sample.
@@ -457,4 +545,3 @@ def create_problem(config, load_train_data: bool = True) -> ProblemInstance:
 
 # Auto-register problems
 from src.problems.darcy_continuous import DarcyContinuous
-

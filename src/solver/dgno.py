@@ -276,6 +276,24 @@ class FoundationTrainer:
         print(f"Latents train: mean={latents_train.mean():.4f}, std={latents_train.std():.4f}")
         print(f"Latents test:  mean={latents_test.mean():.4f}, std={latents_test.std():.4f}")
 
+        # =========== STANDARDIZATION ===========
+        latent_mean = latents_train.mean(dim=0, keepdim=True)
+        latent_std = latents_train.std(dim=0, keepdim=True) + 1e-8
+        self.problem.set_latent_standardization(latent_mean, latent_std)
+
+        latents_train = self.problem.standardize_latent(latents_train)
+        latents_test = self.problem.standardize_latent(latents_test)
+
+        print(f"Latents train (standardized): mean={latents_train.mean():.4f}, std={latents_train.std():.4f}")
+
+        latents_train = latents_train.to(self.device)
+        latents_test = latents_test.to(self.device)
+
+        # =============================================
+
+        print(f"Latents train (standardized): mean={latents_train.mean():.4f}, std={latents_train.std():.4f}")
+        print(f"Latents test (standardized):  mean={latents_test.mean():.4f}, std={latents_test.std():.4f}")
+
         train_loader = var_data_loader(latents_train, batch_size=cfg.batch_size, shuffle=True)
         test_loader = var_data_loader(latents_test, batch_size=cfg.batch_size, shuffle=False)
 
@@ -293,7 +311,7 @@ class FoundationTrainer:
 
                 self.optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(parameters=nf.parameters(), max_norm=1.0, error_if_nonfinite=True)
+                torch.nn.utils.clip_grad_norm_(parameters=nf.parameters(), max_norm=5.0, error_if_nonfinite=True)
                 self.optimizer.step()
 
                 train_nll += loss.item()
@@ -335,16 +353,39 @@ class FoundationTrainer:
             # Debug prints every epoch_show
             if (epoch + 1) % cfg.epoch_show == 0:
                 with torch.no_grad():
-                    z_out, _ = nf.forward(latents_train[:500])
+                    # Forward: latents -> z (should become N(0,1))
+                    z_out, log_det_fwd = nf.forward(latents_train[:500])
+
+                    # Inverse: z -> reconstructed latents (should match latent distribution)
                     z_sample = torch.randn(500, nf.dim, device=self.device)
                     beta_out, _ = nf.inverse(z_sample)
 
-                    # Check scale base values
-                    # base1_vals = [nf.flows[i].log_scale_base1.mean().item() for i in range(len(nf.flows))]
+                    # Per-dimension statistics (catch collapse in specific dimensions)
+                    z_std_per_dim = z_out.std(dim=0)
+                    z_mean_per_dim = z_out.mean(dim=0)
+
+                    # Check for dead/exploding dimensions
+                    dead_dims = (z_std_per_dim < 0.1).sum().item()
+                    exploding_dims = (z_std_per_dim > 3.0).sum().item()
+
+                    # Log det statistics (should be reasonable, not exploding)
+                    log_det_mean = log_det_fwd.mean().item()
+                    log_det_std = log_det_fwd.std().item()
+
+                    # Reconstruction test: latent -> z -> latent (should be identity)
+                    z_roundtrip, _ = nf.forward(latents_train[:100])
+                    beta_roundtrip, _ = nf.inverse(z_roundtrip)
+                    reconstruction_err = (beta_roundtrip - latents_train[:100]).abs().mean().item()
 
                 print(f"\nEpoch {epoch + 1}: Train NLL={avg_train:.4f}, Test NLL={avg_test:.4f}")
-                # | base1: {base1_vals}
-                print(f"  z_mean: {z_out.mean():.3f} z_std: {z_out.std():.3f} | inv_mean: {beta_out.mean():.5f} inv_std: {beta_out.std():.4f} ")
+                print(f"  Forward (β→z):  mean={z_out.mean():.3f}, std={z_out.std():.3f} "
+                      f"[target: mean=0, std=1]")
+                print(f"  Per-dim z_std:  min={z_std_per_dim.min():.3f}, max={z_std_per_dim.max():.3f}, "
+                      f"dead={dead_dims}, exploding={exploding_dims}")
+                print(f"  Inverse (z→β):  mean={beta_out.mean():.4f}, std={beta_out.std():.4f} "
+                      f"[target: mean≈0, std≈1 after standardization]")
+                print(f"  Log-det:        mean={log_det_mean:.2f}, std={log_det_std:.2f}")
+                print(f"  Reconstruction: {reconstruction_err:.6f} [should be ~0]")
 
         # Save last checkpoint
         self.problem.save_checkpoint(

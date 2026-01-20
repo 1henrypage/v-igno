@@ -72,9 +72,8 @@ class IGNOInverter:
         batch_size = x_obs.shape[0]
 
         # Initialize: sample z ~ N(0,I) for all samples, pass through NF inverse
-        z = torch.randn(batch_size, self.nf.dim, device=self.device)
-        beta_init, _ = self.nf.inverse(z)
-        beta = nn.Parameter(beta_init.clone().detach().requires_grad_(True))
+        beta = self.problem.sample_latent_from_nf(num_samples=batch_size)
+        beta = nn.Parameter(beta.clone().detach().requires_grad_(True))
 
         # Setup optimizer (optimizing single parameter tensor containing all betas)
         optimizer = get_optimizer(config.optimizer, [beta])

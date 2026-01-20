@@ -71,6 +71,11 @@ class SchedulerConfig(BaseConfig):
     gamma: Optional[float] = None
     patience: Optional[int] = None
     factor: Optional[float] = None
+    total_steps: Optional[int] = None
+    pct_start: Optional[float] = None
+    anneal_strategy: Optional[str] = None
+    div_factor: Optional[int] = None
+    final_div_factor: Optional[int] = None
 
 
 @dataclass
