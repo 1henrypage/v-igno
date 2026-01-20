@@ -112,7 +112,8 @@ def get_scheduler(
     SCHEDULERS = {
         'StepLR': torch.optim.lr_scheduler.StepLR,
         'Plateau': torch.optim.lr_scheduler.ReduceLROnPlateau,
-        'OneCycle': torch.optim.lr_scheduler.OneCycleLR
+        'OneCycle': torch.optim.lr_scheduler.OneCycleLR,
+        'CosineAnnealing': torch.optim.lr_scheduler.CosineAnnealingLR
     }
 
     scheduler_type = scheduler_config.type
@@ -136,6 +137,12 @@ def get_scheduler(
             anneal_strategy=scheduler_config.anneal_strategy,
             div_factor=scheduler_config.div_factor,
             final_div_factor=scheduler_config.final_div_factor
+        )
+    elif scheduler_type=='CosineAnnealing':
+        return SCHEDULERS[scheduler_type](
+            optimizer=optimizer,
+            T_max=scheduler_config.total_steps,
+            eta_min=scheduler_config.eta_min
         )
     elif scheduler_type=='Plateau':
         raise ValueError("We don't ever use this")

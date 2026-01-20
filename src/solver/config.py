@@ -76,6 +76,7 @@ class SchedulerConfig(BaseConfig):
     anneal_strategy: Optional[str] = None
     div_factor: Optional[int] = None
     final_div_factor: Optional[int] = None
+    eta_min: Optional[float] = None
 
 
 @dataclass

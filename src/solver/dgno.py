@@ -311,7 +311,7 @@ class FoundationTrainer:
 
                 self.optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(parameters=nf.parameters(), max_norm=5.0, error_if_nonfinite=True)
+                torch.nn.utils.clip_grad_norm_(parameters=nf.parameters(), max_norm=10.0, error_if_nonfinite=True)
                 self.optimizer.step()
 
                 train_nll += loss.item()
@@ -386,6 +386,8 @@ class FoundationTrainer:
                       f"[target: mean≈0, std≈1 after standardization]")
                 print(f"  Log-det:        mean={log_det_mean:.2f}, std={log_det_std:.2f}")
                 print(f"  Reconstruction: {reconstruction_err:.6f} [should be ~0]")
+
+
 
         # Save last checkpoint
         self.problem.save_checkpoint(

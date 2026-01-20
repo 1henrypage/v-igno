@@ -24,7 +24,7 @@ class RealNVPCoupling(nn.Module):
     Single RealNVP coupling layer with TWO coupling transforms.
     Matches author's reference implementation with optional soft clamping.
     """
-    def __init__(self, dim: int, hidden_dim: int = 64, scale_clamp: float = 5.0):
+    def __init__(self, dim: int, hidden_dim: int = 64, scale_clamp: float = 2.0):
         super().__init__()
         self.dim = dim
         self.half = dim // 2
