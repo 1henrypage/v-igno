@@ -6,6 +6,7 @@ from typing import Optional, Dict, List, Literal
 
 from src.components.fcn import FCNet
 from src.components.mon import MultiONetBatch, MultiONetBatch_X
+from src.solver import TrainingConfig
 from src.solver.config import OptimizerConfig, SchedulerConfig
 from src.utils.misc_utils import get_default_device
 
@@ -100,7 +101,7 @@ def get_optimizer(
     return OPTIMIZERS[optimizer_type](
         params=param_list,
         lr=optimizer_config.lr,
-        weight_decay=1e-4,
+        weight_decay=optimizer_config.weight_decay,
     )
 
 def get_scheduler(
@@ -110,7 +111,9 @@ def get_scheduler(
 
     SCHEDULERS = {
         'StepLR': torch.optim.lr_scheduler.StepLR,
-        'Plateau': torch.optim.lr_scheduler.ReduceLROnPlateau
+        'Plateau': torch.optim.lr_scheduler.ReduceLROnPlateau,
+        'OneCycle': torch.optim.lr_scheduler.OneCycleLR,
+        'CosineAnnealing': torch.optim.lr_scheduler.CosineAnnealingLR
     }
 
     scheduler_type = scheduler_config.type
@@ -125,7 +128,24 @@ def get_scheduler(
             gamma=scheduler_config.gamma,
             last_epoch=-1
         )
+    elif scheduler_type=='OneCycle':
+        return SCHEDULERS[scheduler_type](
+            optimizer=optimizer,
+            max_lr=optimizer.param_groups[0]['lr'],
+            total_steps=scheduler_config.total_steps, # THIS NEEDS TO BE THE SAME AS EPOCH NUMBER
+            pct_start=scheduler_config.pct_start,
+            anneal_strategy=scheduler_config.anneal_strategy,
+            div_factor=scheduler_config.div_factor,
+            final_div_factor=scheduler_config.final_div_factor
+        )
+    elif scheduler_type=='CosineAnnealing':
+        return SCHEDULERS[scheduler_type](
+            optimizer=optimizer,
+            T_max=scheduler_config.total_steps,
+            eta_min=scheduler_config.eta_min
+        )
     elif scheduler_type=='Plateau':
+        raise ValueError("We don't ever use this")
         return SCHEDULERS[scheduler_type](
             optimizer=optimizer,
             mode='min',

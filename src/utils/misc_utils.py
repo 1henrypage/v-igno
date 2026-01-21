@@ -15,15 +15,14 @@ def get_default_device() -> torch.device:
     else:
         return torch.device("cpu")
 
-def setup_seed(seed):
-    """
-    Sets seed for torch
-
-    """
+def setup_seed(seed: int):
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
-    torch.backends.cudnn.deterministic = True
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
 def get_project_root() -> Path:
     return Path(

@@ -54,7 +54,7 @@ class Point2D():
         self.lb = x_lb
         self.ub = x_ub
         self.dtype = dataType
-        #
+
         np.random.seed(random_seed)
         self.lhs_1d = qmc.LatinHypercube(1, seed=random_seed)
         self.lhs_x = qmc.LatinHypercube(2, seed=random_seed)

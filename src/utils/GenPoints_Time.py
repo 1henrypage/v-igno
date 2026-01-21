@@ -16,6 +16,7 @@ class Point1D():
         self.ub = x_ub
         self.dtype = dataType
         #
+
         np.random.seed(random_seed)
         self.lhs_t = qmc.LatinHypercube(1, seed=random_seed)
         self.lhs_x = qmc.LatinHypercube(1, seed=random_seed + 10086)

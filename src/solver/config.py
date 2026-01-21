@@ -1,5 +1,7 @@
 """
-Training configuration. Single YAML file.
+Training and evaluation configuration. Single YAML file.
+
+NF architecture is hardcoded per-problem (in _build_models), not in config.
 """
 from dataclasses import dataclass, asdict, field, fields
 from typing import Literal, Optional, List, Dict, Any, Type, TypeVar
@@ -39,43 +41,57 @@ class BaseConfig:
         return _serialize(asdict(self))
 
 
+# =============================================================================
+# Problem Config
+# =============================================================================
+
 @dataclass
 class ProblemConfig(BaseConfig):
-    type: str = "darcy_flow_continuous"
+    """Problem type and data paths."""
+    type: str
+    train_data: Optional[str] = None
+    test_data: Optional[str] = None
 
+
+# =============================================================================
+# Training Components
+# =============================================================================
 
 @dataclass
 class OptimizerConfig(BaseConfig):
-    type: Literal['Adam', 'AdamW', 'RMSprop', 'SGD'] = 'Adam'
-    lr: float = 1e-3
-    weight_decay: float = 0.0
+    type: Literal['Adam', 'AdamW', 'RMSprop', 'SGD'] = None
+    lr: float = None
+    weight_decay: float = None
 
 
 @dataclass
 class SchedulerConfig(BaseConfig):
     type: Optional[Literal['StepLR', 'Plateau', 'CosineAnnealing']] = None
-    step_size: int = 100
-    gamma: float = 0.5
-    patience: int = 10
-    factor: float = 0.5
+    step_size: Optional[int] = None
+    gamma: Optional[float] = None
+    patience: Optional[int] = None
+    factor: Optional[float] = None
+    total_steps: Optional[int] = None
+    pct_start: Optional[float] = None
+    anneal_strategy: Optional[str] = None
+    div_factor: Optional[int] = None
+    final_div_factor: Optional[int] = None
+    eta_min: Optional[float] = None
 
 
 @dataclass
 class LossWeights(BaseConfig):
-    pde: float = 1.0
-    data: float = 1.0
+    pde: float = None
+    data: float = None
 
 
-@dataclass
-class NFConfig(BaseConfig):
-    dim: int = 64
-    num_flows: int = 8
-    hidden_dim: int = 128
-    num_layers: int = 2
-
+# =============================================================================
+# Training Phase Configs
+# =============================================================================
 
 @dataclass
 class DGNOConfig(BaseConfig):
+    """Config for DGNO (encoder-decoder) training phase."""
     epochs: int = 1000
     batch_size: int = 100
     epoch_show: int = 100
@@ -99,10 +115,10 @@ class DGNOConfig(BaseConfig):
 
 @dataclass
 class NFTrainConfig(BaseConfig):
+    """Config for NF training phase (architecture is in problem, not here)."""
     epochs: int = 1000
     batch_size: int = 100
     epoch_show: int = 100
-    nf: NFConfig = field(default_factory=NFConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
 
@@ -114,7 +130,6 @@ class NFTrainConfig(BaseConfig):
             epochs=data.get('epochs', 1000),
             batch_size=data.get('batch_size', 100),
             epoch_show=data.get('epoch_show', 100),
-            nf=NFConfig.from_dict(data.get('nf', {})),
             optimizer=OptimizerConfig.from_dict(data.get('optimizer', {})),
             scheduler=SchedulerConfig.from_dict(data.get('scheduler', {})),
         )
@@ -122,6 +137,7 @@ class NFTrainConfig(BaseConfig):
 
 @dataclass
 class EncoderConfig(BaseConfig):
+    """Config for encoder training phase (if used separately)."""
     epochs: int = 1000
     batch_size: int = 100
     epoch_show: int = 100
@@ -147,11 +163,75 @@ class EncoderConfig(BaseConfig):
         )
 
 
+# =============================================================================
+# Evaluation Configs
+# =============================================================================
+
+@dataclass
+class InversionConfig(BaseConfig):
+    """Config for gradient-based inversion."""
+    epochs: int = 1000
+    loss_weights: LossWeights =  None
+    optimizer: OptimizerConfig = None
+    scheduler: SchedulerConfig = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'InversionConfig':
+        if data is None:
+            return cls()
+        return cls(
+            epochs=data.get('epochs', 1000),
+            loss_weights=LossWeights.from_dict(data.get('loss_weights', {})),
+            optimizer=OptimizerConfig.from_dict(data.get('optimizer', {})),
+            scheduler=SchedulerConfig.from_dict(data.get('scheduler', {})),
+        )
+
+
+@dataclass
+class EvaluationConfig(BaseConfig):
+    """Config for evaluation/inversion."""
+    method: Literal['igno', 'encoder'] = 'igno'
+
+    # Batch size
+    batch_size: int = None
+
+    # Observation setup
+    n_obs: int = 100
+    obs_sampling: Literal['random', 'grid'] = 'random'
+
+    # Noise (None for clean)
+    snr_db: Optional[float] = None
+
+    # Inversion params
+    inversion: InversionConfig = field(default_factory=InversionConfig)
+
+    # Output
+    results_dir: str = "results"
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'EvaluationConfig':
+        if data is None:
+            return cls()
+        return cls(
+            method=data.get('method', 'igno'),
+            batch_size=data.get('batch_size', None),
+            n_obs=data.get('n_obs', 100),
+            obs_sampling=data.get('obs_sampling', 'random'),
+            snr_db=data.get('snr_db', 25.0),
+            inversion=InversionConfig.from_dict(data.get('inversion', {})),
+            results_dir=data.get('results_dir', 'results'),
+        )
+
+
+# =============================================================================
+# Main Config
+# =============================================================================
+
 @dataclass
 class TrainingConfig(BaseConfig):
-    """Main config."""
-    run_name: str = "experiment"
-    device: str = "cuda"
+    """Main config for training and evaluation."""
+    run_name: str
+    device: str
     artifact_root: str = "runs"
     seed: int = 10086
 
@@ -159,9 +239,13 @@ class TrainingConfig(BaseConfig):
     stages: List[str] = field(default_factory=lambda: ["foundation"])
     pretrained: Optional[Dict[str, Any]] = None
 
+    # Training phase configs
     dgno: DGNOConfig = field(default_factory=DGNOConfig)
     nf: NFTrainConfig = field(default_factory=NFTrainConfig)
     encoder: EncoderConfig = field(default_factory=EncoderConfig)
+
+    # Evaluation config
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
 
     @classmethod
     def from_dict(cls, data: dict) -> 'TrainingConfig':
@@ -173,8 +257,8 @@ class TrainingConfig(BaseConfig):
             problem_data = {'type': problem_data}
 
         return cls(
-            run_name=data.get('run_name', 'experiment'),
-            device=data.get('device', 'cuda'),
+            run_name=data.get('run_name'),
+            device=data.get('device'),
             artifact_root=data.get('artifact_root', 'runs'),
             seed=data.get('seed', 10086),
             problem=ProblemConfig.from_dict(problem_data),
@@ -183,6 +267,7 @@ class TrainingConfig(BaseConfig):
             dgno=DGNOConfig.from_dict(data.get('dgno', {})),
             nf=NFTrainConfig.from_dict(data.get('nf', {})),
             encoder=EncoderConfig.from_dict(data.get('encoder', {})),
+            evaluation=EvaluationConfig.from_dict(data.get('evaluation', {})),
         )
 
     @classmethod
@@ -201,7 +286,7 @@ class TrainingConfig(BaseConfig):
             return None
         path = Path(self.pretrained.get('path', ''))
         if not path.exists():
-            return None
+            raise RuntimeError("Pretrained path doesn't exist.")
         if path.suffix == '.pt':
             return path
         stage = self.pretrained.get('stage', 'foundation')

@@ -1,62 +1,36 @@
 #!/bin/bash
-#SBATCH --job-name=igno_training        # Job name
-#SBATCH --qos=medium                    # Request QoS (short=4h, medium=2d, long=7d)
-#SBATCH --time=14:00:00                 # Request run time (wall-clock)
-#SBATCH --ntasks=1                      # Number of (gpu) tasks (keep at 1)
-#SBATCH --cpus-per-task=8               # 8 CPU cores (good for data loading)
-#SBATCH --mem=64G                       # 64GB RAM (adjust if needed)
-#SBATCH --gres=gpu:l40:1                # Request 1 L40 GPU
-#SBATCH --output=slurm_logs/job_%j.out  # Set name of output log (%j = jobID)
-#SBATCH --error=slurm_logs/job_%j.err   # Set name of error log (%j = jobID)
-#SBATCH --mail-type=END,FAIL            # Send email on job end/failure
-#SBATCH --mail-user=h.page@student.tudelft.nl
-
 # =============================================================================
-# SLURM Job Script for DGNO Training on DAIC
+# SLURM Job Submission Helper
 # =============================================================================
-# This script sets up the environment and runs ML training using the DGNO
-# framework on TU Delft's AI Cluster (DAIC).
-#
-# Usage:
-#   sbatch slurm_job.sh [CONFIG_FILE] [ADDITIONAL_ARGS]
+# Usage: ./slurm_job.sh <QOS> <MODE> <CONFIG_FILE> [ADDITIONAL_ARGS]
 #
 # Examples:
-#   sbatch slurm_job.sh
-#   sbatch slurm_job.sh configs/my_experiment.yaml
-#   sbatch slurm_job.sh configs/my_experiment.yaml --seed 42
+#   ./slurm_job.sh short train configs/my_experiment.yaml
+#   ./slurm_job.sh medium evaluate configs/eval_config.yaml --seed 42
 # =============================================================================
 
-# Print job information
-echo "=============================================="
-echo "Job ID: $SLURM_JOB_ID"
-echo "Job Name: $SLURM_JOB_NAME"
-echo "Node: $(hostname)"
-echo "Starting time: $(date)"
-echo "=============================================="
+set -e
 
-# Check GPU allocation
-echo "GPU Information:"
-nvidia-smi
-echo "=============================================="
+# Parse arguments
+QOS_LEVEL="${1:?QoS level required (short or medium)}"
+MODE="${2:?mode required (train or evaluate)}"
+CONFIG_FILE="${3:?config file required}"
+shift 3
+ADDITIONAL_ARGS="$@"
 
+# Validate QoS level
+if [[ "$QOS_LEVEL" != "short" && "$QOS_LEVEL" != "medium" && "$QOS_LEVEL" != "long" ]]; then
+    echo "ERROR: Invalid QoS level: $QOS_LEVEL"
+    echo "Must be one of: short, medium, long"
+    exit 1
+fi
 
-# =============================================================================
-# Navigate to project directory
-# =============================================================================
-
-# Use SLURM_SUBMIT_DIR instead of BASH_SOURCE
-cd "$SLURM_SUBMIT_DIR" || exit 1
-
-echo "Working directory: $(pwd)"
-echo "=============================================="
-
-# =============================================================================
-# Determine configuration file
-# =============================================================================
-
-# Use provided config file or default
-CONFIG_FILE="${1:-configs/example_config.yaml}"
-shift || true  # Remove first argument if it exists
+# Validate mode
+if [[ "$MODE" != "train" && "$MODE" != "evaluate" ]]; then
+    echo "ERROR: Invalid mode: $MODE"
+    echo "Mode must be either 'train' or 'evaluate'"
+    exit 1
+fi
 
 # Check if config file exists
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -64,37 +38,35 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 
-echo "Using configuration: $CONFIG_FILE"
-echo "Additional arguments: $*"
+# Determine which SLURM script to use
+case "$QOS_LEVEL" in
+    short)
+        SLURM_SCRIPT="short.sh"
+        ;;
+    medium)
+        SLURM_SCRIPT="med.sh"
+        ;;
+    long)
+        SLURM_SCRIPT="long.sh"  # You can create this later if needed
+        ;;
+esac
+
+# Check if SLURM script exists
+if [ ! -f "$SLURM_SCRIPT" ]; then
+    echo "ERROR: SLURM script not found: $SLURM_SCRIPT"
+    exit 1
+fi
+
+# Submit the job
+echo "=============================================="
+echo "Submitting job with:"
+echo "  QoS: $QOS_LEVEL"
+echo "  Script: $SLURM_SCRIPT"
+echo "  Mode: $MODE"
+echo "  Config: $CONFIG_FILE"
+echo "  Additional args: $ADDITIONAL_ARGS"
 echo "=============================================="
 
-# =============================================================================
-# Run Training
-# =============================================================================
+sbatch "$SLURM_SCRIPT" "$MODE" "$CONFIG_FILE" $ADDITIONAL_ARGS
 
-echo "Starting training..."
-echo "Command: uv run python run_training.py --config $CONFIG_FILE $*"
-echo "=============================================="
-
-
-# Run the training script with srun
-# srun ensures proper resource allocation and process management
-srun uv run python run_training.py --config "$CONFIG_FILE" "$@"
-
-# Capture exit status
-EXIT_STATUS=$?
-
-# =============================================================================
-# Post-Training Diagnostics
-# =============================================================================
-
-echo "=============================================="
-echo "Training completed with exit status: $EXIT_STATUS"
-echo "End time: $(date)"
-echo "=============================================="
-
-echo "=============================================="
-echo "Job $SLURM_JOB_ID finished"
-echo "=============================================="
-
-exit $EXIT_STATUS
+echo "Job submitted successfully!"
