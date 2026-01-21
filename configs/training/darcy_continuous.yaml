@@ -14,8 +14,8 @@ problem:
 stages:
   - foundation
 
-# pretrained:
-#   path: "/path/to/checkpoint.pt"
+#pretrained:
+#  path: "./runs/stable_dgno_darcy_continuous/foundation/weights/best_dgno.pt"
 
 # Phase 1: DGNO (encoder + decoders)
 dgno:
@@ -28,7 +28,7 @@ dgno:
   optimizer:
     type: Adam
     lr: 0.001
-    weight_decay: 0.0001
+    weight_decay: 0.000001
   scheduler:
     type: StepLR
     step_size: 2500
@@ -38,17 +38,27 @@ dgno:
 # Note: NF architecture (dim, num_flows, hidden_dim, num_layers) is
 # hardcoded in the problem's _build_models() method
 nf:
-  epochs: 20000
-  batch_size: 50
-  epoch_show: 200
+  epochs: 10000
+  batch_size: 64
+  epoch_show: 400
   optimizer:
     type: Adam
     lr: 0.001
     weight_decay: 0.0
   scheduler:
-    type: StepLR
-    step_size: 3500
-    gamma: 0.5
+    type: CosineAnnealing
+    total_steps: 10000
+    eta_min: 0.00001
+#    type: StepLR
+#    step_size: 2501
+#    gamma: 0.5
+
+#    total_steps: 10000
+#    pct_start: 0.05
+#    anneal_strategy: 'cos'
+#    div_factor: 10
+#    final_div_factor: 100
+
 
 # Optional: Encoder training (separate phase)
 encoder:

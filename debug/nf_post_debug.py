@@ -21,17 +21,20 @@ enc.eval()
 
 # Load new NF
 # from src.components.nf import RealNVP
-# nf = RealNVP(dim=128, num_flows=8, hidden_dim=64, num_layers=5)
+# nf = RealNVP(dim=128, num_flows=3, hidden_dim=64, num_layers=2)
 # nf.load_state_dict(ckpt['models']['nf'])
 # nf.eval()
 
-# for name, buf in nf.named_buffers():
-#     if "initialized" in name:
-#         print(f"{name} is {buf.item()} (Should be 1)")
 
 with torch.no_grad():
     beta_encoded = enc(a)
     print(f"Encoded beta: mean={beta_encoded.mean():.4f}, std={beta_encoded.std():.4f}")
+    print(f"Raw latent range: [{beta_encoded.min():.3f}, {beta_encoded.max():.3f}]")
+    print(f"Per-dim std: min={beta_encoded.std(0).min():.4f}, max={beta_encoded.std(0).max():.4f}")
+
+    # How many dimensions are nearly constant?
+    dead = (beta_encoded.std(0) < 0.1).sum()
+    print(f"Dead dimensions (std < 0.1): {dead}")
     
     z_out, _ = nf.forward(beta_encoded)
     print(f"NF forward:   mean={z_out.mean():.4f}, std={z_out.std():.4f}  (should be ~0, ~1)")

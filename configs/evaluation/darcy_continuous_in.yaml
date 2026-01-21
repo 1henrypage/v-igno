@@ -11,7 +11,7 @@ problem:
 
 # REQUIRED: Pretrained model weights (contains all models: enc, u, a, nf)
 pretrained:
-  path: "./runs/2026-01-17_14-39-26_20_just_nf/foundation/weights/best.pt"
+  path: "./runs/2026-01-20_23-25-36_20_just_nf/foundation/weights/last.pt"
 
 # Evaluation settings
 evaluation:
@@ -19,7 +19,7 @@ evaluation:
   
   # Batch size for parallel inversion (significant speedup)
   # Set to large value to process all samples at once (memory permitting)
-  batch_size: 1
+  batch_size: 200
   
   # Observation setup
   n_obs: 100              # Number of observation points
@@ -42,7 +42,7 @@ evaluation:
     scheduler:
       type: StepLR
       step_size: 250
-      gamma: 0.66666667
+      gamma: 0.66
   
   # Output directory for results
   results_dir: "results"

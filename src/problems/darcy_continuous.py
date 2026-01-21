@@ -46,10 +46,10 @@ class DarcyContinuous(ProblemInstance):
     """
 
     # Hardcoded model hyperparameters (consistent across experiments)
-    BETA_SIZE = 128
-    HIDDEN_SIZE = 100
-    NF_NUM_FLOWS = 4
-    NF_HIDDEN_DIM = 128
+    BETA_SIZE = 100
+    HIDDEN_SIZE = 96
+    NF_NUM_FLOWS = 3
+    NF_HIDDEN_DIM = 64
     NF_NUM_LAYERS = 2
 
     def __init__(self, seed:int, device=None, dtype=torch.float32,

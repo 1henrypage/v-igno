@@ -189,7 +189,7 @@ class FoundationTrainer:
 
                 self.optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(dgno_params, max_norm=100.0)
+                torch.nn.utils.clip_grad_norm_(dgno_params, max_norm=10.0, error_if_nonfinite=True)
                 self.optimizer.step()
 
                 loss_sum += loss.item()
@@ -291,8 +291,20 @@ class FoundationTrainer:
 
         # =============================================
 
-        print(f"Latents train (standardized): mean={latents_train.mean():.4f}, std={latents_train.std():.4f}")
-        print(f"Latents test (standardized):  mean={latents_test.mean():.4f}, std={latents_test.std():.4f}")
+        # debug_latents = latents_train
+        # # Check if it's actually Gaussian-like
+        # print(
+        #     f"Kurtosis: {((debug_latents ** 4).mean(dim=0) / (debug_latents ** 2).mean(dim=0) ** 2).mean():.2f}")  # Should be 3.0 for Gaussian
+        # print(
+        #     f"Skewness: {((debug_latents ** 3).mean(dim=0) / (debug_latents ** 2).mean(dim=0) ** 1.5).mean():.2f}")  # Should be 0.0 for Gaussian
+
+        # Check correlations between dimensions
+        # corr_matrix = torch.corrcoef(debug_latents.T)
+        # off_diag = corr_matrix[~torch.eye(128, dtype=bool)]
+        # print(f"Off-diagonal correlations: mean={off_diag.mean():.3f}, max={off_diag.abs().max():.3f}")
+        #
+        # print(f"Latents train (standardized): mean={latents_train.mean():.4f}, std={latents_train.std():.4f}")
+        # print(f"Latents test (standardized):  mean={latents_test.mean():.4f}, std={latents_test.std():.4f}")
 
         train_loader = var_data_loader(latents_train, batch_size=cfg.batch_size, shuffle=True)
         test_loader = var_data_loader(latents_test, batch_size=cfg.batch_size, shuffle=False)
@@ -377,6 +389,14 @@ class FoundationTrainer:
                     beta_roundtrip, _ = nf.inverse(z_roundtrip)
                     reconstruction_err = (beta_roundtrip - latents_train[:100]).abs().mean().item()
 
+                    s_vals = []
+                    x_temp = latents_train[:100]
+                    for flow in nf.flows:
+                        lower = x_temp[:, :flow.half]
+                        s1 = flow.s1(lower)
+                        s_vals.append(s1.abs().mean().item())
+
+
                 print(f"\nEpoch {epoch + 1}: Train NLL={avg_train:.4f}, Test NLL={avg_test:.4f}")
                 print(f"  Forward (β→z):  mean={z_out.mean():.3f}, std={z_out.std():.3f} "
                       f"[target: mean=0, std=1]")
@@ -386,8 +406,7 @@ class FoundationTrainer:
                       f"[target: mean≈0, std≈1 after standardization]")
                 print(f"  Log-det:        mean={log_det_mean:.2f}, std={log_det_std:.2f}")
                 print(f"  Reconstruction: {reconstruction_err:.6f} [should be ~0]")
-
-
+                print(f"  Scale magnitudes: {[f'{s:.3f}' for s in s_vals]}")
 
         # Save last checkpoint
         self.problem.save_checkpoint(

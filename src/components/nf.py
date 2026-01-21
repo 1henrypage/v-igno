@@ -20,39 +20,25 @@ class FCNN(nn.Module):
 
 
 class RealNVPCoupling(nn.Module):
-    """
-    Single RealNVP coupling layer with TWO coupling transforms.
-    Matches author's reference implementation with optional soft clamping.
-    """
-    def __init__(self, dim: int, hidden_dim: int = 64, scale_clamp: float = 2.0):
+    def __init__(self, dim: int, hidden_dim: int = 64):
         super().__init__()
         self.dim = dim
         self.half = dim // 2
-        self.scale_clamp = scale_clamp
 
-        # Separate networks as per reference implementation
         self.t1 = FCNN(self.half, self.half, hidden_dim)
         self.s1 = FCNN(self.half, self.half, hidden_dim)
         self.t2 = FCNN(self.half, self.half, hidden_dim)
         self.s2 = FCNN(self.half, self.half, hidden_dim)
 
-    def _clamp_scale(self, s: torch.Tensor) -> torch.Tensor:
-        """Soft clamp to prevent numerical instability while preserving gradients."""
-        # tanh squashes to (-1, 1), so this gives us (-scale_clamp, scale_clamp)
-        # exp(s) will be in (exp(-5), exp(5)) ≈ (0.0067, 148) for scale_clamp=5
-        return self.scale_clamp * torch.tanh(s / self.scale_clamp)
-
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         lower, upper = x[:, :self.half], x[:, self.half:]
 
-        # First coupling: condition on lower, transform upper
         t1 = self.t1(lower)
-        s1 = self._clamp_scale(self.s1(lower))
+        s1 = self.s1(lower)
         upper = t1 + upper * torch.exp(s1)
 
-        # Second coupling: condition on upper, transform lower
         t2 = self.t2(upper)
-        s2 = self._clamp_scale(self.s2(upper))
+        s2 = self.s2(upper)
         lower = t2 + lower * torch.exp(s2)
 
         z = torch.cat([lower, upper], dim=1)
@@ -62,19 +48,18 @@ class RealNVPCoupling(nn.Module):
     def inverse(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         lower, upper = z[:, :self.half], z[:, self.half:]
 
-        # Invert second coupling first
         t2 = self.t2(upper)
-        s2 = self._clamp_scale(self.s2(upper))
+        s2 = self.s2(upper)
         lower = (lower - t2) * torch.exp(-s2)
 
-        # Then invert first coupling
         t1 = self.t1(lower)
-        s1 = self._clamp_scale(self.s1(lower))
+        s1 = self.s1(lower)
         upper = (upper - t1) * torch.exp(-s1)
 
         x = torch.cat([lower, upper], dim=1)
         log_det = -s1.sum(dim=1) - s2.sum(dim=1)
         return x, log_det
+
 
 
 class RealNVP(nn.Module):
