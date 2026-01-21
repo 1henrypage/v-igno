@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=med_vigno     # Job name
 #SBATCH --qos=medium                    # Request QoS (short=4h, medium=2d, long=7d)
-#SBATCH --time=23:00:00                 # Request run time (wall-clock)
+#SBATCH --time=13:00:00                 # Request run time (wall-clock)
 #SBATCH --partition=general,insy        # Request against appropriate partitions
 #SBATCH --ntasks=1                      # Number of (gpu) tasks (keep at 1)
 #SBATCH --cpus-per-task=2               # 8 CPU cores (good for data loading)
