@@ -1,7 +1,9 @@
 """
-Training and evaluation configuration. Single YAML file.
+Training and evaluation configuration.
 
-NF architecture is hardcoded per-problem (in _build_models), not in config.
+Simplified structure:
+- Single training phase (encoder + decoders + NF jointly)
+- Evaluation config for inversion methods
 """
 from dataclasses import dataclass, asdict, field, fields
 from typing import Literal, Optional, List, Dict, Any, Type, TypeVar
@@ -48,7 +50,7 @@ class BaseConfig:
 @dataclass
 class ProblemConfig(BaseConfig):
     """Problem type and data paths."""
-    type: str
+    type: str = None
     train_data: Optional[str] = None
     test_data: Optional[str] = None
 
@@ -81,83 +83,48 @@ class SchedulerConfig(BaseConfig):
 
 @dataclass
 class LossWeights(BaseConfig):
-    pde: float = None
-    data: float = None
+    pde: float = 1.0
+    data: float = 1.0
 
 
 # =============================================================================
-# Training Phase Configs
+# Training Config (Joint: encoder + decoders + NF)
 # =============================================================================
 
 @dataclass
-class DGNOConfig(BaseConfig):
-    """Config for DGNO (encoder-decoder) training phase."""
-    epochs: int = 1000
-    batch_size: int = 100
-    epoch_show: int = 100
+class IGNOTrainingConfig(BaseConfig):
+    """
+    Config for joint IGNO training (encoder + decoders + NF).
+
+    The NF is trained jointly with encoder/decoders using detached latents,
+    as per the original IGNO paper implementation.
+    """
+    epochs: int = 10000
+    batch_size: int = 50
+    epoch_show: int = 50
+
+    # Loss weights for PDE and data terms
+    # Note: NF loss doesn't need a weight since gradients don't flow to encoder/decoders
     loss_weights: LossWeights = field(default_factory=LossWeights)
+
+    # Latent standardization for NF
+    # If True, latents are standardized to zero mean and unit variance before NF
+    # IMPORTANT: Must match between training and evaluation
+    standardize_latent: bool = False
+
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'DGNOConfig':
+    def from_dict(cls, data: dict) -> 'IGNOTrainingConfig':
         if data is None:
             return cls()
         return cls(
-            epochs=data.get('epochs', 1000),
-            batch_size=data.get('batch_size', 100),
-            epoch_show=data.get('epoch_show', 100),
+            epochs=data.get('epochs', 10000),
+            batch_size=data.get('batch_size', 50),
+            epoch_show=data.get('epoch_show', 50),
             loss_weights=LossWeights.from_dict(data.get('loss_weights', {})),
-            optimizer=OptimizerConfig.from_dict(data.get('optimizer', {})),
-            scheduler=SchedulerConfig.from_dict(data.get('scheduler', {})),
-        )
-
-
-@dataclass
-class NFTrainConfig(BaseConfig):
-    """Config for NF training phase (architecture is in problem, not here)."""
-    epochs: int = 1000
-    batch_size: int = 100
-    epoch_show: int = 100
-    optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
-    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'NFTrainConfig':
-        if data is None:
-            return cls()
-        return cls(
-            epochs=data.get('epochs', 1000),
-            batch_size=data.get('batch_size', 100),
-            epoch_show=data.get('epoch_show', 100),
-            optimizer=OptimizerConfig.from_dict(data.get('optimizer', {})),
-            scheduler=SchedulerConfig.from_dict(data.get('scheduler', {})),
-        )
-
-
-@dataclass
-class EncoderConfig(BaseConfig):
-    """Config for encoder training phase (if used separately)."""
-    epochs: int = 1000
-    batch_size: int = 100
-    epoch_show: int = 100
-    freeze_decoder: bool = True
-    freeze_nf: bool = True
-    loss_weights: LossWeights = field(default_factory=LossWeights)
-    optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
-    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'EncoderConfig':
-        if data is None:
-            return cls()
-        return cls(
-            epochs=data.get('epochs', 1000),
-            batch_size=data.get('batch_size', 100),
-            epoch_show=data.get('epoch_show', 100),
-            freeze_decoder=data.get('freeze_decoder', True),
-            freeze_nf=data.get('freeze_nf', True),
-            loss_weights=LossWeights.from_dict(data.get('loss_weights', {})),
+            standardize_latent=data.get('standardize_latent', False),
             optimizer=OptimizerConfig.from_dict(data.get('optimizer', {})),
             scheduler=SchedulerConfig.from_dict(data.get('scheduler', {})),
         )
@@ -170,8 +137,8 @@ class EncoderConfig(BaseConfig):
 @dataclass
 class InversionConfig(BaseConfig):
     """Config for gradient-based inversion."""
-    epochs: int = 1000
-    loss_weights: LossWeights =  None
+    epochs: int = 500
+    loss_weights: LossWeights = None
     optimizer: OptimizerConfig = None
     scheduler: SchedulerConfig = None
 
@@ -180,7 +147,7 @@ class InversionConfig(BaseConfig):
         if data is None:
             return cls()
         return cls(
-            epochs=data.get('epochs', 1000),
+            epochs=data.get('epochs', 500),
             loss_weights=LossWeights.from_dict(data.get('loss_weights', {})),
             optimizer=OptimizerConfig.from_dict(data.get('optimizer', {})),
             scheduler=SchedulerConfig.from_dict(data.get('scheduler', {})),
@@ -190,10 +157,10 @@ class InversionConfig(BaseConfig):
 @dataclass
 class EvaluationConfig(BaseConfig):
     """Config for evaluation/inversion."""
-    method: Literal['igno', 'encoder'] = 'igno'
+    method: Literal['igno', 'mcmc'] = 'igno'
 
-    # Batch size
-    batch_size: int = None
+    # Batch size for parallel inversion
+    batch_size: int = 200
 
     # Observation setup
     n_obs: int = 100
@@ -202,7 +169,7 @@ class EvaluationConfig(BaseConfig):
     # Noise (None for clean)
     snr_db: Optional[float] = None
 
-    # Inversion params
+    # Inversion params (for IGNO method)
     inversion: InversionConfig = field(default_factory=InversionConfig)
 
     # Output
@@ -214,10 +181,10 @@ class EvaluationConfig(BaseConfig):
             return cls()
         return cls(
             method=data.get('method', 'igno'),
-            batch_size=data.get('batch_size', None),
+            batch_size=data.get('batch_size', 200),
             n_obs=data.get('n_obs', 100),
             obs_sampling=data.get('obs_sampling', 'random'),
-            snr_db=data.get('snr_db', 25.0),
+            snr_db=data.get('snr_db'),
             inversion=InversionConfig.from_dict(data.get('inversion', {})),
             results_dir=data.get('results_dir', 'results'),
         )
@@ -230,19 +197,16 @@ class EvaluationConfig(BaseConfig):
 @dataclass
 class TrainingConfig(BaseConfig):
     """Main config for training and evaluation."""
-    run_name: str
-    device: str
+    run_name: str = None
+    device: str = "cuda"
     artifact_root: str = "runs"
     seed: int = 10086
 
     problem: ProblemConfig = field(default_factory=ProblemConfig)
-    stages: List[str] = field(default_factory=lambda: ["foundation"])
     pretrained: Optional[Dict[str, Any]] = None
 
-    # Training phase configs
-    dgno: DGNOConfig = field(default_factory=DGNOConfig)
-    nf: NFTrainConfig = field(default_factory=NFTrainConfig)
-    encoder: EncoderConfig = field(default_factory=EncoderConfig)
+    # Training config (joint encoder + decoders + NF)
+    training: IGNOTrainingConfig = field(default_factory=IGNOTrainingConfig)
 
     # Evaluation config
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
@@ -258,15 +222,12 @@ class TrainingConfig(BaseConfig):
 
         return cls(
             run_name=data.get('run_name'),
-            device=data.get('device'),
+            device=data.get('device', 'cuda'),
             artifact_root=data.get('artifact_root', 'runs'),
             seed=data.get('seed', 10086),
             problem=ProblemConfig.from_dict(problem_data),
-            stages=data.get('stages', ['foundation']),
             pretrained=data.get('pretrained'),
-            dgno=DGNOConfig.from_dict(data.get('dgno', {})),
-            nf=NFTrainConfig.from_dict(data.get('nf', {})),
-            encoder=EncoderConfig.from_dict(data.get('encoder', {})),
+            training=IGNOTrainingConfig.from_dict(data.get('training', {})),
             evaluation=EvaluationConfig.from_dict(data.get('evaluation', {})),
         )
 
@@ -289,6 +250,6 @@ class TrainingConfig(BaseConfig):
             raise RuntimeError("Pretrained path doesn't exist.")
         if path.suffix == '.pt':
             return path
-        stage = self.pretrained.get('stage', 'foundation')
+        # Default to best.pt in weights directory
         checkpoint = self.pretrained.get('checkpoint', 'best.pt')
-        return path / stage / 'weights' / checkpoint
+        return path / 'weights' / checkpoint

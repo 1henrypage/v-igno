@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from torch.utils.data import DataLoader, TensorDataset
-from typing import Optional, Dict, List, Literal
+from typing import Optional, Dict, List, Literal, Union
 
 from src.components.fcn import FCNet
 from src.components.mon import MultiONetBatch, MultiONetBatch_X
@@ -83,8 +83,8 @@ def get_model(x_in_size: int, beta_in_size: int,
     return model.to(device)
 
 def get_optimizer(
-        optimizer_config: OptimizerConfig,
-        param_list: List[nn.Parameter],
+    optimizer_config: OptimizerConfig,
+    param_groups: Union[dict, list]
 ) -> torch.optim.Optimizer:
 
     OPTIMIZERS = {
@@ -94,14 +94,31 @@ def get_optimizer(
     }
 
     optimizer_type = optimizer_config.type
-
     if optimizer_type not in OPTIMIZERS:
         raise NotImplementedError(f'Unknown optimizer: {optimizer_type}')
 
+    # --- Logic for handling the input structure ---
+    formatted_groups = []
+
+    if isinstance(param_groups, dict):
+        # Apply config weight decay to 'decay' bucket, 0 to 'no_decay'
+        if "decay" in param_groups and param_groups["decay"]:
+            formatted_groups.append({
+                "params": param_groups["decay"],
+                "weight_decay": optimizer_config.weight_decay
+            })
+        if "no_decay" in param_groups and param_groups["no_decay"]:
+            formatted_groups.append({
+                "params": param_groups["no_decay"],
+                "weight_decay": 0.0
+            })
+    else:
+        # Fallback: If it's just a list, default to no weight decay
+        formatted_groups = [{"params": param_groups, "weight_decay": 0.0}]
+
     return OPTIMIZERS[optimizer_type](
-        params=param_list,
+        params=formatted_groups,
         lr=optimizer_config.lr,
-        weight_decay=optimizer_config.weight_decay,
     )
 
 def get_scheduler(
