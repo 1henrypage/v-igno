@@ -6,7 +6,7 @@ Components:
 - EncoderInverter: Direct encoding (placeholder for your method)
 - Metrics: RMSE, relative L2, cross-correlation
 """
-from .igno import IGNOInverter, EncoderInverter
+from .igno import IGNOInverter
 from .metrics import (
     rmse,
     relative_l2,
@@ -17,7 +17,6 @@ from .metrics import (
 
 __all__ = [
     'IGNOInverter',
-    'EncoderInverter',
     'rmse',
     'relative_l2',
     'cross_correlation',

@@ -1,13 +1,10 @@
-
 """Solver module."""
-from .config import TrainingConfig, DGNOConfig, NFTrainConfig, EncoderConfig
-from .dgno import FoundationTrainer
-# from .encoder import EncoderTrainer
+from .config import TrainingConfig, IGNOTrainingConfig, EvaluationConfig, InversionConfig
+from .trainer import IGNOTrainer
 from src.problems import ProblemInstance, create_problem, register_problem, list_problems
 
 __all__ = [
-    'TrainingConfig', 'DGNOConfig', 'NFTrainConfig', 'EncoderConfig',
-    'FoundationTrainer',
+    'TrainingConfig', 'IGNOTrainingConfig', 'EvaluationConfig', 'InversionConfig',
+    'IGNOTrainer',
     'ProblemInstance', 'create_problem', 'register_problem', 'list_problems',
-    # 'EncoderTrainer'
 ]
