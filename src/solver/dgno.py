@@ -389,12 +389,12 @@ class FoundationTrainer:
                     beta_roundtrip, _ = nf.inverse(z_roundtrip)
                     reconstruction_err = (beta_roundtrip - latents_train[:100]).abs().mean().item()
 
-                    s_vals = []
-                    x_temp = latents_train[:100]
-                    for flow in nf.flows:
-                        lower = x_temp[:, :flow.half]
-                        s1 = flow.s1(lower)
-                        s_vals.append(s1.abs().mean().item())
+                    # s_vals = []
+                    # x_temp = latents_train[:100]
+                    # for flow in nf.flows:
+                    #     lower = x_temp[:, :flow.half]
+                    #     s1 = flow.s1(lower)
+                    #     s_vals.append(s1.abs().mean().item())
 
 
                 print(f"\nEpoch {epoch + 1}: Train NLL={avg_train:.4f}, Test NLL={avg_test:.4f}")
@@ -406,7 +406,7 @@ class FoundationTrainer:
                       f"[target: mean≈0, std≈1 after standardization]")
                 print(f"  Log-det:        mean={log_det_mean:.2f}, std={log_det_std:.2f}")
                 print(f"  Reconstruction: {reconstruction_err:.6f} [should be ~0]")
-                print(f"  Scale magnitudes: {[f'{s:.3f}' for s in s_vals]}")
+                # print(f"  Scale magnitudes: {[f'{s:.3f}' for s in s_vals]}")
 
         # Save last checkpoint
         self.problem.save_checkpoint(

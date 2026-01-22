@@ -28,7 +28,7 @@ dgno:
   optimizer:
     type: Adam
     lr: 0.001
-    weight_decay: 0.000005
+    weight_decay: 0.000001
   scheduler:
     type: StepLR
     step_size: 2500

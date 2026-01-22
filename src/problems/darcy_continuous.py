@@ -46,10 +46,10 @@ class DarcyContinuous(ProblemInstance):
     """
 
     # Hardcoded model hyperparameters (consistent across experiments)
-    BETA_SIZE = 32
+    BETA_SIZE = 24
     HIDDEN_SIZE = 100
     NF_NUM_FLOWS = 3
-    NF_HIDDEN_DIM = 64
+    NF_HIDDEN_DIM = 56
     NF_NUM_LAYERS = 2
 
     def __init__(self, seed:int, device=None, dtype=torch.float32,
@@ -156,7 +156,7 @@ class DarcyContinuous(ProblemInstance):
 
         # ============== Encoder Architecture ==============
         conv_arch = [1, 64, 64, 64]
-        fc_arch = [64 * 2 * 2, 128, 128, self.BETA_SIZE]
+        fc_arch = [64 * 2 * 2, 128, 64, self.BETA_SIZE]
         model_enc = EncoderCNNet2dTanh(
             conv_arch=conv_arch,
             fc_arch=fc_arch,
@@ -200,7 +200,6 @@ class DarcyContinuous(ProblemInstance):
             dim=self.BETA_SIZE,
             num_flows=self.NF_NUM_FLOWS,
             hidden_dim=self.NF_HIDDEN_DIM,
-            num_layers=self.NF_NUM_LAYERS,
         )
 
         return {
