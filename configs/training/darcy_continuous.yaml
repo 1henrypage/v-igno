@@ -14,9 +14,9 @@ problem:
 
 # Joint training configuration (encoder + decoders + NF)
 training:
-  epochs: 5
+  epochs: 10000
   batch_size: 50
-  epoch_show: 2
+  epoch_show: 200
 
   # Loss weights for PDE and data terms
   # Note: NF loss doesn't need a weight (gradients don't flow to encoder/decoders)
