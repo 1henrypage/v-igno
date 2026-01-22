@@ -46,8 +46,8 @@ class DarcyContinuous(ProblemInstance):
     """
 
     # Hardcoded model hyperparameters (consistent across experiments)
-    BETA_SIZE = 100
-    HIDDEN_SIZE = 96
+    BETA_SIZE = 32
+    HIDDEN_SIZE = 100
     NF_NUM_FLOWS = 3
     NF_HIDDEN_DIM = 64
     NF_NUM_LAYERS = 2
