@@ -271,6 +271,8 @@ class IGNOTrainer:
                 print(f"  Loss: {avg_loss:.4f} (pde={pde_sum/n_train:.4f}, "
                       f"data={data_sum/n_train:.4f}, nf={avg_nf:.4f})")
                 print(f"  Test Error: {avg_error:.4f}, Test NF NLL: {avg_test_nf:.4f}")
+                # --- NF Observability Block ---
+                self._run_nf_diagnostics(epoch, train_data['a'], cfg.standardize_latent)
 
         # Save last checkpoint
         self.problem.save_checkpoint(
@@ -330,6 +332,59 @@ class IGNOTrainer:
         std = latents.std(dim=0, keepdim=True) + 1e-8
 
         self.problem.set_latent_standardization(mean, std)
+        enc.train()
+
+    def _run_nf_diagnostics(self, epoch: int, a_sample: torch.Tensor, standardize: bool) -> None:
+        """Detailed monitoring of NF health and expressivity."""
+        nf = self.problem.model_dict['nf']
+        enc = self.problem.model_dict['enc']
+
+        nf.eval()
+        enc.eval()
+
+        with torch.no_grad():
+            # 1. Get Latents (Standardized if enabled)
+            beta = enc(a_sample.to(self.device))
+            if standardize:
+                beta = self.problem.standardize_latent(beta)
+
+            # 2. Forward: Latent -> Z (Target: N(0,1))
+            z_out, log_det_fwd = nf.forward(beta)
+
+            # 3. Stats for Z-space (Detecting Mode Collapse)
+            z_mean_per_dim = z_out.mean(dim=0)
+            z_std_per_dim = z_out.std(dim=0)
+
+            z_mean_total = z_out.mean().item()
+            z_std_total = z_out.std().item()
+            dead_dims = (z_std_per_dim < 0.1).sum().item()
+            exploding_dims = (z_std_per_dim > 5.0).sum().item()
+
+            # 4. Invertibility Check (Roundtrip: beta -> z -> beta_rec)
+            beta_rec, _ = nf.inverse(z_out)
+            rec_err = torch.abs(beta - beta_rec).mean().item()
+
+            # 5. Log-Det Analysis (Numerical stability)
+            ldj_mean = log_det_fwd.mean().item()
+            ldj_std = log_det_fwd.std().item()
+
+            # --- Logging to TensorBoard ---
+            self._log("nf_health/z_mean_avg", z_mean_total, epoch)
+            self._log("nf_health/z_std_avg", z_std_total, epoch)
+            self._log("nf_health/dead_dims", float(dead_dims), epoch)
+            self._log("nf_health/rec_error_abs", rec_err, epoch)
+            self._log("nf_health/log_det_mean", ldj_mean, epoch)
+
+            # --- Console Output ---
+            print(f"  [NF Health] Roundtrip Err: {rec_err:.2e} | Dead Dims: {dead_dims}/{z_out.shape[1]}")
+            print(f"  [NF Health] Z-Space: Mean={z_mean_total:.3f}, Std={z_std_total:.3f} | LogDet: {ldj_mean:.2f}")
+
+            if dead_dims > (z_out.shape[1] // 2):
+                print("  ⚠️ WARNING: High number of dead dimensions detected. Flow might be collapsing.")
+            if rec_err > 1e-3:
+                print("  ⚠️ WARNING: Poor invertibility. Check for vanishing/exploding gradients in NF.")
+
+        nf.train()
         enc.train()
 
     def close(self) -> None:
