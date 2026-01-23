@@ -2,25 +2,20 @@
 """
 Evaluation script for inverse problems.
 
-Runs IGNO-style gradient inversion (or encoder-based) on test set
-and computes metrics.
-
+Runs IGNO-style gradient inversion on test set and computes metrics.
 All models are loaded from pretrained checkpoint into the ProblemInstance.
 
 Usage:
-    python evaluate.py --config configs/evaluate.yaml
-    python evaluate.py --config configs/evaluate.yaml --n-obs 25
-    python evaluate.py --config configs/evaluate.yaml --snr-db 50
-    python evaluate.py --config configs/evaluate.yaml --method encoder
-    python evaluate.py --config configs/evaluate.yaml --batch-size 64
+    python evaluate.py --config configs/evaluation/example_evaluate.yaml
+    python evaluate.py --config configs/evaluation/example_evaluate.yaml --n-obs 25
+    python evaluate.py --config configs/evaluation/example_evaluate.yaml --snr-db 50
+    python evaluate.py --config configs/evaluation/example_evaluate.yaml --batch-size 64
 """
 import argparse
 import json
 import sys
 from pathlib import Path
 from datetime import datetime
-
-from src.utils.misc_utils import setup_seed
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -29,7 +24,7 @@ from tqdm import trange
 
 from src.solver.config import TrainingConfig
 from src.problems import create_problem
-from src.evaluation import IGNOInverter, EncoderInverter, compute_all_metrics, aggregate_metrics
+from src.evaluation import IGNOInverter, compute_all_metrics, aggregate_metrics
 
 
 def save_results(results: dict, config: TrainingConfig, output_dir: Path):
@@ -100,13 +95,15 @@ def evaluate(config: TrainingConfig, verbose: bool = True):
     # Get NF for inverter
     nf = problem.model_dict['nf']
 
-    # Create inverter
+    # Create inverter based on method
     if eval_cfg.method == 'igno':
         print("\nUsing IGNO gradient-based inversion")
         inverter = IGNOInverter(problem, nf)
-    elif eval_cfg.method == 'encoder':
-        print("\nUsing encoder-based inversion")
-        raise NotImplementedError("Encoder-based inversion not yet implemented. Train encoder first.")
+    elif eval_cfg.method == 'mcmc':
+        raise NotImplementedError(
+            "MCMC-based inversion not yet implemented. "
+            "This will be added for Bayesian uncertainty quantification."
+        )
     else:
         raise ValueError(f"Unknown evaluation method: {eval_cfg.method}")
 
@@ -123,7 +120,9 @@ def evaluate(config: TrainingConfig, verbose: bool = True):
     print(f"Observation index size: {obs_indices.shape}")
 
     # Get batch size (default to n_test if not specified or larger)
-    batch_size = getattr(eval_cfg, 'batch_size', n_test)
+    batch_size = eval_cfg.batch_size
+    if batch_size is None:
+        batch_size = n_test
     batch_size = min(batch_size, n_test)
 
     print(f"\nEvaluation setup:")
@@ -220,7 +219,7 @@ def main():
     parser.add_argument('--config', required=True, help='Path to config YAML')
     parser.add_argument('--device', type=str, help='Override device')
     parser.add_argument('--pretrained', type=str, help='Override pretrained path')
-    parser.add_argument('--method', choices=['igno', 'encoder'], help='Inversion method')
+    parser.add_argument('--method', choices=['igno', 'mcmc'], help='Inversion method')
     parser.add_argument('--n-obs', type=int, help='Number of observations')
     parser.add_argument('--snr-db', type=float, help='SNR in dB (use 0 for clean)')
     parser.add_argument('--inversion-epochs', type=int, help='Inversion epochs')
@@ -250,7 +249,6 @@ def main():
         config.evaluation.batch_size = args.batch_size
     if args.seed:
         config.seed = args.seed
-
 
     print(f"Config: {args.config}")
     print(f"Device: {config.device}")

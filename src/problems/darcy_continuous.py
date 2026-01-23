@@ -1,16 +1,21 @@
 """
 Darcy Flow Continuous problem.
 
-Original loss structure preserved:
-- loss_pde(a): encodes a -> beta, then computes PDE loss
-- loss_data(x, a, u): encodes a -> beta, then computes data loss
+PDE: -div(a * grad(u)) = f
 
-Additional _from_beta methods for inversion/encoder:
-- loss_pde_from_beta(beta): PDE loss directly from beta
-- loss_data_from_beta(beta, x, target, target_type): data loss directly from beta
+Training uses:
+- loss_pde(a): Encodes a -> beta, then computes PDE loss (uses RBF interpolator for a)
+- loss_data(x, a, u): Encodes a -> beta, then computes reconstruction loss on a
+
+Inversion uses:
+- loss_pde_from_beta(beta): PDE loss directly from beta (uses decoder for a)
+- loss_data_from_beta(beta, x, target, target_type): Data loss directly from beta
+
+IMPORTANT: loss_pde and loss_pde_from_beta are DIFFERENT:
+- loss_pde uses the RBF interpolator on the TRUE coefficient field a
+- loss_pde_from_beta uses the DECODED coefficient field from the decoder
 
 All models (enc, u, a, nf) are built in _build_models().
-
 Supports batched operations for efficient evaluation.
 """
 
@@ -31,11 +36,13 @@ from src.utils.RBFInterpolatorMesh import RBFInterpolator
 from src.utils.solver_utils import get_model
 from src.utils.npy_loader import NpyFile
 
+
 class TorchMollifier:
     def __call__(self, u, x):
         pi = torch.pi
         u = u * torch.sin(pi * x[..., 0]) * torch.sin(pi * x[..., 1])
         return u.unsqueeze(-1)
+
 
 @register_problem("darcy_continuous")
 class DarcyContinuous(ProblemInstance):
@@ -50,9 +57,8 @@ class DarcyContinuous(ProblemInstance):
     HIDDEN_SIZE = 100
     NF_NUM_FLOWS = 3
     NF_HIDDEN_DIM = 56
-    NF_NUM_LAYERS = 2
 
-    def __init__(self, seed:int, device=None, dtype=torch.float32,
+    def __init__(self, seed: int, device=None, dtype=torch.float32,
                  train_data_path: str = None, test_data_path: str = None):
         super().__init__(
             seed=seed,
@@ -124,10 +130,10 @@ class DarcyContinuous(ProblemInstance):
         print("Problem initialized.")
 
     def _load_data(self, path: str) -> tuple:
-        """Load data from HDF5/MAT file."""
+        """Load data from npy directory."""
         path = Path(path)
         if not path.exists():
-            raise FileNotFoundError(f"Data file not found: {path}")
+            raise FileNotFoundError(f"Data path not found: {path}")
 
         data = NpyFile(path=path, mode='r')
 
@@ -210,11 +216,23 @@ class DarcyContinuous(ProblemInstance):
         }
 
     # =========================================================================
-    # ORIGINAL LOSS METHODS (encode a -> beta first)
+    # TRAINING LOSS METHODS (encode a -> beta first)
+    # These use the TRUE coefficient field via RBF interpolator
     # =========================================================================
 
     def loss_pde(self, a: torch.Tensor) -> torch.Tensor:
-        """Compute PDE residual loss."""
+        """
+        Compute PDE residual loss during TRAINING.
+
+        IMPORTANT: This uses the RBF interpolator on the TRUE coefficient field a,
+        NOT the decoded coefficient. This is different from loss_pde_from_beta.
+
+        Args:
+            a: Coefficient field (batch, n_points, 1)
+
+        Returns:
+            PDE residual loss
+        """
         nc = 100
         n_batch = a.shape[0]
         beta = self.model_dict['enc'](a)
@@ -252,15 +270,17 @@ class DarcyContinuous(ProblemInstance):
 
     def loss_data(self, x: torch.Tensor, a: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
         """
-        Compute data loss. First encodes a to beta, then computes loss.
+        Compute data/reconstruction loss during TRAINING.
+
+        Encodes a -> beta, then computes reconstruction loss on coefficient a.
 
         Args:
             x: Coordinates (batch, n_points, 2)
-            a: Coefficient field (batch, n_points, 1) - used for encoding
-            u: Solution field (batch, n_points, 1) - target (NOT USED in original)
+            a: Coefficient field (batch, n_points, 1) - used for encoding AND as target
+            u: Solution field (batch, n_points, 1) - NOT USED in original IGNO training
 
         Returns:
-            Data fitting loss (on coefficient a)
+            Reconstruction loss on coefficient a
         """
         beta = self.model_dict['enc'](a)
         return self.loss_data_from_beta(
@@ -272,7 +292,9 @@ class DarcyContinuous(ProblemInstance):
 
     def error(self, x: torch.Tensor, a: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
         """
-        Compute error metric. First encodes a to beta, then computes error on u.
+        Compute error metric during TRAINING/EVALUATION.
+
+        Encodes a -> beta, then computes error on solution u.
 
         Args:
             x: Coordinates (batch, n_points, 2)
@@ -291,17 +313,18 @@ class DarcyContinuous(ProblemInstance):
         )
 
     # =========================================================================
-    # FROM_BETA METHODS (for inversion/encoder - skip encoding step)
-    # Supports batched beta inputs for efficient evaluation.
+    # INVERSION LOSS METHODS (from beta directly, skip encoding)
+    # These use the DECODED coefficient field
     # =========================================================================
 
     def loss_pde_from_beta(self, beta: torch.Tensor) -> torch.Tensor:
         """
-        Compute PDE residual loss given beta directly.
+        Compute PDE residual loss during INVERSION.
+
+        IMPORTANT: This uses the DECODED coefficient field from the decoder,
+        NOT the true coefficient. This is different from loss_pde.
 
         -div(a * grad(u)) = f, with f = 10
-
-        Supports batched inputs for efficient parallel inversion.
 
         Args:
             beta: Latent representation (batch, latent_dim)
@@ -326,7 +349,7 @@ class DarcyContinuous(ProblemInstance):
         v = self.v.repeat((nc, 1, 1)).reshape(-1, 1)
         dv = (self.dv_dr / R).reshape(-1, 2)
 
-        # Model prediction
+        # Use DECODED coefficient field (not true coefficient!)
         a_detach = self.model_dict['a'](x.detach(), beta)
         a_detach = a_detach.unsqueeze(-1)
         # u: size(n_batch, nc*n_grid, 1)
@@ -344,16 +367,14 @@ class DarcyContinuous(ProblemInstance):
         right = (f * v).reshape(n_batch, nc, self.n_grid)
         right = torch.mean(right, dim=-1)
 
-        loss_pde = torch.norm(left - right, 2, 1)  # (n_batch,)
+        loss_pde = torch.norm(left - right, 2, 1)
 
         return torch.mean(loss_pde)
 
     def loss_data_from_beta(self, beta: torch.Tensor, x: torch.Tensor,
                             target: torch.Tensor, target_type: str = 'a') -> torch.Tensor:
         """
-        Compute data fitting loss given beta directly.
-
-        Supports batched inputs for efficient parallel inversion.
+        Compute data fitting loss during INVERSION.
 
         Args:
             beta: Latent representation (batch, latent_dim)
@@ -411,8 +432,6 @@ class DarcyContinuous(ProblemInstance):
         """
         Given beta, predict u and a on given coordinates.
 
-        Supports batched inputs.
-
         Args:
             beta: Latent representation (batch, latent_dim)
             x: Coordinates (batch, n_points, 2)
@@ -430,7 +449,7 @@ class DarcyContinuous(ProblemInstance):
 
         return {
             'u_pred': u_pred,
-            'a_pred':  a_pred,
+            'a_pred': a_pred,
         }
 
     # =========================================================================
@@ -438,15 +457,13 @@ class DarcyContinuous(ProblemInstance):
     # =========================================================================
 
     def prepare_observations(
-        self,
-        sample_indices: List[int],
-        obs_indices: np.ndarray,
-        snr_db: float = None
+            self,
+            sample_indices: List[int],
+            obs_indices: np.ndarray,
+            snr_db: float = None
     ) -> Dict[str, torch.Tensor]:
         """
         Prepare observation data for test samples.
-
-        Supports batched preparation for efficient evaluation.
 
         Args:
             sample_indices: List of indices into test set
@@ -457,7 +474,6 @@ class DarcyContinuous(ProblemInstance):
             Dict with x_full, x_obs, u_obs, u_true, a_true
             All tensors have shape (batch, ...)
         """
-        batch_size = len(sample_indices)
 
         # Stack all samples along batch dimension
         a_true = torch.stack([self.test_data['a'][i] for i in sample_indices])  # (batch, n_points, 1)
@@ -472,14 +488,12 @@ class DarcyContinuous(ProblemInstance):
         if snr_db is not None:
             u_obs = self.add_noise_snr(u_obs, snr_db)
 
-        # print(f"x_full.shape: {x_full.shape}, x_obs.shape: {x_obs.shape}, u_obs.shape: {u_obs.shape}, u_true.shape: {u_true.shape}, a_true.shape: {a_true.shape}")
-
         return {
-            'x_full': x_full.to(self.device),      # (batch, n_points, 2)
-            'x_obs': x_obs.to(self.device),         # (batch, n_obs, 2)
-            'u_obs': u_obs.to(self.device),         # (batch, n_obs, 1)
-            'u_true': u_true.to(self.device),       # (batch, n_points, 1)
-            'a_true': a_true.to(self.device),       # (batch, n_points, 1)
+            'x_full': x_full.to(self.device),
+            'x_obs': x_obs.to(self.device),
+            'u_obs': u_obs.to(self.device),
+            'u_true': u_true.to(self.device),
+            'a_true': a_true.to(self.device),
         }
 
     def get_n_test_samples(self) -> int:

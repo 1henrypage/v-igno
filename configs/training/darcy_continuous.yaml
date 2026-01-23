@@ -1,5 +1,3 @@
-# Training Configuration
-# NF architecture is hardcoded per-problem in _build_models()
 
 run_name: "darcy_continuous"
 device: "cuda"
@@ -11,71 +9,31 @@ problem:
   train_data: "data/darcy_continuous/smh_train/"
   test_data: "data/darcy_continuous/smh_test_in/"
 
-stages:
-  - foundation
-
 #pretrained:
-#  path: "./runs/stable_dgno_darcy_continuous/foundation/weights/best_dgno.pt"
+#  path: "./runs/2026-01-22_16-18-13_darcy_continuous/weights/best.pt"
 
-# Phase 1: DGNO (encoder + decoders)
-dgno:
+# Joint training configuration (encoder + decoders + NF)
+training:
   epochs: 10000
   batch_size: 50
-  epoch_show: 50
+  epoch_show: 200
+
+  # Loss weights for PDE and data terms
+  # Note: NF loss doesn't need a weight (gradients don't flow to encoder/decoders)
   loss_weights:
     pde: 0.25
     data: 2.0
+  # Latent standardization for NF
+  # If true, latents are normalized to zero mean and unit variance before NF
+  # The encoder uses Tanh output, so latents are bounded in [-1,1]^d
+  # With Neural Spline Flows, standardization is typically not needed
+  # IMPORTANT: Must match between training and evaluation!
+  standardize_latent: false
   optimizer:
     type: Adam
     lr: 0.001
     weight_decay: 0.000001
   scheduler:
-    type: StepLR
-    step_size: 2500
-    gamma: 0.5
-
-# Phase 2: NF (normalizing flow on latents)
-# Note: NF architecture (dim, num_flows, hidden_dim, num_layers) is
-# hardcoded in the problem's _build_models() method
-nf:
-  epochs: 10000
-  batch_size: 64
-  epoch_show: 400
-  optimizer:
-    type: Adam
-    lr: 0.001
-    weight_decay: 0.0
-  scheduler:
     type: CosineAnnealing
     total_steps: 10000
-    eta_min: 0.00001
-#    type: StepLR
-#    step_size: 2501
-#    gamma: 0.5
-
-#    total_steps: 10000
-#    pct_start: 0.05
-#    anneal_strategy: 'cos'
-#    div_factor: 10
-#    final_div_factor: 100
-
-
-# Optional: Encoder training (separate phase)
-encoder:
-  epochs: 1000
-  batch_size: 100
-  epoch_show: 100
-  freeze_decoder: true
-  freeze_nf: true
-  loss_weights:
-    pde: 0
-    data: 0
-  optimizer:
-    type: Adam
-    lr: 0.0001
-    weight_decay: 0.0001
-  scheduler:
-    type: Plateau
-    patience: 50
-    factor: 0.5
-
+    eta_min: 0.000125

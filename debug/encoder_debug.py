@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # === CONFIG ===
-CHECKPOINT_PATH = '/home/henry/school/v-igno/runs/100_dims/foundation/weights/best_dgno.pt'
-LATENT_DIM = 100  # Update this to match your new architecture
+CHECKPOINT_PATH = '/home/henry/school/v-igno/runs/24_dims/weights/best.pt'
+LATENT_DIM =  24 # Update this to match your new architecture
 
 ckpt = torch.load(CHECKPOINT_PATH, weights_only=False, map_location='cpu')
 
@@ -17,7 +17,7 @@ a = a.reshape(a.shape[0], -1, 1)     # (1000, 841, 1)
 from src.components.encoder import EncoderCNNet2dTanh
 enc = EncoderCNNet2dTanh(
     conv_arch=[1, 64, 64, 64],
-    fc_arch=[64 * 2 * 2, 128, 128, LATENT_DIM],  # Updated for new latent dim
+    fc_arch=[64 * 2 * 2, 128, 64 , LATENT_DIM],  # Updated for new latent dim
     activation_conv='SiLU', activation_fc='SiLU',
     nx_size=29, ny_size=29, kernel_size=(3, 3), stride=2
 )

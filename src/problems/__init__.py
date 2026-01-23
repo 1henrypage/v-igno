@@ -8,13 +8,11 @@ Each problem is fully self-contained:
 - Defines losses
 - Handles checkpoint save/load
 
-Loss structure:
-- loss_pde(a): Original method - encodes a -> beta, then computes PDE loss
-- loss_data(x, a, u): Original method - encodes a -> beta, then computes data loss
-
-For inversion/encoder (optional):
-- loss_pde_from_beta(beta): PDE loss directly from beta (skips encoding)
-- loss_data_from_beta(beta, x, target, target_type): Data loss directly from beta
+Loss structure for joint training:
+- loss_pde(a): Encodes a -> beta, then computes PDE residual loss
+- loss_data(x, a, u): Encodes a -> beta, then computes data/reconstruction loss
+- loss_pde_from_beta(beta): PDE loss directly from beta (for inversion)
+- loss_data_from_beta(beta, x, target, target_type): Data loss directly from beta (for inversion)
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, Type, Callable, Literal, List, Any
@@ -56,13 +54,14 @@ class ProblemInstance(ABC):
     All models (encoder, decoders, NF) are built via _build_models().
     This class is the single source of truth for model ownership.
 
-    Loss methods follow original structure:
-    - loss_pde(a): encode a -> beta, compute PDE loss
-    - loss_data(x, a, u): encode a -> beta, compute data loss
+    Training uses joint optimization of encoder + decoders + NF:
+    - loss_pde(a): Encodes a -> beta, computes PDE residual loss
+    - loss_data(x, a, u): Encodes a -> beta, computes data/reconstruction loss
+    - NF loss computed on beta.detach() in trainer
 
-    For inversion/encoder, subclasses should implement:
-    - loss_pde_from_beta(beta): PDE loss from beta directly
-    - loss_data_from_beta(beta, x, target, target_type): data loss from beta directly
+    Inversion uses:
+    - loss_pde_from_beta(beta): PDE loss directly from beta
+    - loss_data_from_beta(beta, x, target, target_type): Data loss directly from beta
     """
 
     def __init__(
@@ -90,9 +89,12 @@ class ProblemInstance(ABC):
         self.test_data: Dict[str, torch.Tensor] = {}
 
         # Latent standardization parameters (for NF training/inference)
-        # These are set during NF training and saved/loaded with checkpoints
+        # These are set during training if standardize_latent=True
         self.latent_mean: Optional[torch.Tensor] = None
         self.latent_std: Optional[torch.Tensor] = None
+
+        # Whether standardization is enabled (set by trainer, saved in checkpoint)
+        self.standardize_latent_enabled: bool = False
 
         # Loss/error functions
         self.get_loss = None
@@ -120,18 +122,24 @@ class ProblemInstance(ABC):
     def standardize_latent(self, beta: torch.Tensor) -> torch.Tensor:
         """Standardize latent for NF input."""
         if self.latent_mean is None or self.latent_std is None:
-            raise RuntimeError("Latent standardization not set. Train NF first or load checkpoint.")
+            raise RuntimeError(
+                "Latent standardization parameters not set. "
+                "This should not happen if standardize_latent=True during training."
+            )
         return (beta - self.latent_mean) / self.latent_std
 
     def destandardize_latent(self, beta_std: torch.Tensor) -> torch.Tensor:
         """De-standardize latent from NF output."""
         if self.latent_mean is None or self.latent_std is None:
-            raise RuntimeError("Latent standardization not set. Train NF first or load checkpoint.")
+            raise RuntimeError(
+                "Latent standardization parameters not set. "
+                "This should not happen if standardize_latent=True during training."
+            )
         return beta_std * self.latent_std + self.latent_mean
 
-    def sample_latent_from_nf(self, num_samples) -> torch.Tensor:
+    def sample_latent_from_nf(self, num_samples: int) -> torch.Tensor:
         """
-        Sample from NF prior and de-standardize to get valid latent.
+        Sample from NF prior and de-standardize if needed.
 
         Returns:
             beta: Latent samples (num_samples, latent_dim)
@@ -140,8 +148,9 @@ class ProblemInstance(ABC):
         nf.eval()
 
         with torch.no_grad():
-            beta_std = nf.sample(num_samples, device=self.device)
-            beta = self.destandardize_latent(beta_std)
+            beta = nf.sample(num_samples, device=self.device)
+            if self.standardize_latent_enabled:
+                beta = self.destandardize_latent(beta)
 
         return beta
 
@@ -159,17 +168,17 @@ class ProblemInstance(ABC):
         """
         nf = self.model_dict['nf']
 
-        # Standardize
-        beta_std = self.standardize_latent(beta)
-
-        # Log prob in standardized space
-        log_prob_std = nf.log_prob(beta_std)
-
-        # Jacobian correction: d(beta_std)/d(beta) = 1/latent_std (diagonal)
-        # log|det J| = sum(log(1/latent_std)) = -sum(log(latent_std))
-        log_det_jacobian = -torch.log(self.latent_std).sum()
-
-        return log_prob_std + log_det_jacobian
+        if self.standardize_latent_enabled:
+            # Standardize
+            beta_std = self.standardize_latent(beta)
+            # Log prob in standardized space
+            log_prob_std = nf.log_prob(beta_std)
+            # Jacobian correction: d(beta_std)/d(beta) = 1/latent_std (diagonal)
+            # log|det J| = sum(log(1/latent_std)) = -sum(log(latent_std))
+            log_det_jacobian = -torch.log(self.latent_std).sum()
+            return log_prob_std + log_det_jacobian
+        else:
+            return nf.log_prob(beta)
 
     # =========================================================================
     # Model building (abstract - must be implemented by subclass)
@@ -213,7 +222,7 @@ class ProblemInstance(ABC):
             extra: Optional[Dict] = None,
     ) -> Path:
         """
-        Save checkpoint with all models and latent standardization.
+        Save checkpoint with all models and standardization config.
 
         Args:
             path: Path to save checkpoint
@@ -231,10 +240,12 @@ class ProblemInstance(ABC):
             'models': {name: m.state_dict() for name, m in self.model_dict.items()},
             'epoch': epoch,
             'timestamp': datetime.now().isoformat(),
+            # CRITICAL: Save standardization setting for validation on load
+            'standardize_latent_enabled': self.standardize_latent_enabled,
         }
 
-        # Save latent standardization if set
-        if self.latent_mean is not None:
+        # Save latent standardization parameters if enabled
+        if self.standardize_latent_enabled and self.latent_mean is not None:
             state['latent_mean'] = self.latent_mean.cpu()
             state['latent_std'] = self.latent_std.cpu()
 
@@ -265,9 +276,13 @@ class ProblemInstance(ABC):
             optimizer: Optional[torch.optim.Optimizer] = None,
             load_scheduler: bool = False,
             scheduler: Optional[Any] = None,
+            expected_standardize_latent: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
-        Load checkpoint into model_dict.
+        Load checkpoint into model_dict with strict validation.
+
+        CRITICAL: Validates that standardization settings match between
+        checkpoint and current configuration to prevent silent failures.
 
         Args:
             path: Path to checkpoint
@@ -277,9 +292,13 @@ class ProblemInstance(ABC):
             optimizer: Optimizer to load state into
             load_scheduler: Whether to load scheduler state
             scheduler: Scheduler to load state into
+            expected_standardize_latent: If provided, validates against checkpoint
 
         Returns:
             Checkpoint dict (for accessing epoch, metrics, etc.)
+
+        Raises:
+            RuntimeError: If standardization settings don't match
         """
         path = Path(path)
         if not path.exists():
@@ -287,6 +306,25 @@ class ProblemInstance(ABC):
 
         print(f"Loading checkpoint: {path}")
         checkpoint = torch.load(path, map_location=self.device)
+
+        # =====================================================================
+        # CRITICAL: Validate standardization settings
+        # =====================================================================
+        ckpt_standardize = checkpoint.get('standardize_latent_enabled', False)
+
+        if expected_standardize_latent is not None:
+            if ckpt_standardize != expected_standardize_latent:
+                raise RuntimeError(
+                    f"STANDARDIZATION MISMATCH!\n"
+                    f"  Checkpoint was trained with standardize_latent={ckpt_standardize}\n"
+                    f"  Current config has standardize_latent={expected_standardize_latent}\n"
+                    f"  These MUST match for correct inference.\n"
+                    f"  Either retrain with matching settings or update your config."
+                )
+
+        # Set the standardization flag from checkpoint
+        self.standardize_latent_enabled = ckpt_standardize
+        print(f"  Standardization enabled: {self.standardize_latent_enabled}")
 
         # Get model state dicts
         ckpt_models = checkpoint.get('models', checkpoint)
@@ -304,12 +342,17 @@ class ProblemInstance(ABC):
             elif name not in ckpt_models:
                 print(f"  Warning: {name} not in checkpoint")
 
-        # Load latent standardization if present
+        # Load latent standardization parameters if they exist
         if 'latent_mean' in checkpoint:
             self.latent_mean = checkpoint['latent_mean'].to(self.device)
             self.latent_std = checkpoint['latent_std'].to(self.device)
             print(f"  Loaded: latent standardization (mean_norm={self.latent_mean.norm():.4f}, "
                   f"std_mean={self.latent_std.mean():.4f})")
+        elif self.standardize_latent_enabled:
+            raise RuntimeError(
+                "Checkpoint has standardize_latent_enabled=True but no latent_mean/latent_std found. "
+                "This checkpoint may be corrupted."
+            )
 
         # Load optimizer if requested
         if load_optimizer and optimizer is not None and 'optimizer' in checkpoint:
@@ -358,7 +401,7 @@ class ProblemInstance(ABC):
                     p.requires_grad = True
 
     # =========================================================================
-    # Core loss methods (original structure - encode a first)
+    # Core loss methods (encode a -> beta first, used during TRAINING)
     # =========================================================================
 
     @abstractmethod
@@ -367,6 +410,7 @@ class ProblemInstance(ABC):
         Compute PDE residual loss.
 
         First encodes a to beta, then computes PDE loss.
+        Used during training.
 
         Args:
             a: Coefficient field (batch, n_points, 1)
@@ -379,6 +423,7 @@ class ProblemInstance(ABC):
         Compute data fitting loss.
 
         First encodes a to beta, then computes data loss.
+        Used during training.
 
         Args:
             x: Coordinates (batch, n_points, dim)
@@ -400,7 +445,7 @@ class ProblemInstance(ABC):
         raise NotImplementedError
 
     # =========================================================================
-    # From-beta methods (for inversion/encoder - optional, implement in subclass)
+    # From-beta methods (used during INVERSION - skip encoding step)
     # =========================================================================
 
     @abstractmethod
@@ -408,9 +453,15 @@ class ProblemInstance(ABC):
         """
         Compute PDE loss given beta directly (skips encoding).
 
-        Override in subclass for inversion support.
+        Used during inversion when optimizing beta directly.
+
+        Args:
+            beta: Latent representation (batch, latent_dim)
+
+        Returns:
+            PDE residual loss
         """
-        raise NotImplementedError("Implement loss_pde_from_beta() for inversion support")
+        raise NotImplementedError("Implement loss_pde_from_beta()")
 
     @abstractmethod
     def loss_data_from_beta(self, beta: torch.Tensor, x: torch.Tensor,
@@ -418,26 +469,44 @@ class ProblemInstance(ABC):
         """
         Compute data loss given beta directly (skips encoding).
 
-        Override in subclass for inversion support.
+        Used during inversion when optimizing beta directly.
 
         Args:
             beta: Latent representation
             x: Coordinates
             target: Target values
             target_type: 'a' for coefficient, 'u' for solution
+
+        Returns:
+            Data fitting loss
         """
-        raise NotImplementedError("Implement loss_data_from_beta() for inversion support")
+        raise NotImplementedError("Implement loss_data_from_beta()")
+
+    @abstractmethod
+    def error_from_beta(self, beta: torch.Tensor, x: torch.Tensor,
+                        target: torch.Tensor, target_type: str = 'u') -> torch.Tensor:
+        """
+        Compute error metric given beta directly.
+
+        Args:
+            beta: Latent representation
+            x: Coordinates
+            target: Target values
+            target_type: 'u' for solution, 'a' for coefficient
+
+        Returns:
+            Error metric
+        """
+        raise NotImplementedError("Implement error_from_beta()")
 
     def predict_from_beta(self, beta: torch.Tensor, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Given optimized beta, predict u and a on given coordinates.
 
-        Override in subclass for inversion support.
-
         Returns:
             {'u_pred': Tensor, 'a_pred': Tensor}
         """
-        raise NotImplementedError("Implement predict_from_beta() for inversion support")
+        raise NotImplementedError("Implement predict_from_beta()")
 
     # =========================================================================
     # Observation utilities (for evaluation/inversion)
@@ -485,7 +554,7 @@ class ProblemInstance(ABC):
             snr_db: float = None
     ) -> Dict[str, torch.Tensor]:
         """
-        Prepare observation data for a single test sample.
+        Prepare observation data for test samples.
 
         Override in subclass.
         """
