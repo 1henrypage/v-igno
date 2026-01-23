@@ -7,7 +7,7 @@ seed: 10086
 
 problem:
   type: "darcy_continuous"
-  test_data: "data/darcy_continuous/smh_test_in/"
+  test_data: "data/darcy_continuous/smh_test_out/"
 
 # REQUIRED: Pretrained model weights (contains all models: enc, u, a, nf)
 pretrained:
