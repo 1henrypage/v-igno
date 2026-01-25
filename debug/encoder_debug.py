@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # === CONFIG ===
-CHECKPOINT_PATH = '/home/henry/school/v-igno/runs/24_dims/weights/best.pt'
-LATENT_DIM =  24 # Update this to match your new architecture
+CHECKPOINT_PATH = '/home/henry/school/v-igno/runs/18_dims/weights/best.pt'
+LATENT_DIM = 18 # Update this to match your new architecture
 
 ckpt = torch.load(CHECKPOINT_PATH, weights_only=False, map_location='cpu')
 
