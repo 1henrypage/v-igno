@@ -27,5 +27,6 @@ dev = [
     "jupyter>=1.1.1",
     "notebook>=7.5.0",
     "ipykernel>=7.1.0",
+    "pyro-ppl<=2.0.0"
 ]
 
