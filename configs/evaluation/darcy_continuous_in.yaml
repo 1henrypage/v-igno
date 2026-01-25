@@ -19,7 +19,7 @@ evaluation:
 
   # Batch size for parallel inversion (significant speedup)
   # Set to large value to process all samples at once (memory permitting)
-  batch_size: 200
+  batch_size: 50
 
   # Observation setup
   n_obs: 100              # Number of observation points
